@@ -23,3 +23,9 @@ class MockResizeObserver {
 }
 
 global.ResizeObserver = MockResizeObserver;
+
+// Mock HTMLCanvasElement.getContext for xterm.js
+// xterm uses canvas for color parsing and rendering, which jsdom doesn't support
+HTMLCanvasElement.prototype.getContext = (() => {
+  return null;
+}) as typeof HTMLCanvasElement.prototype.getContext;
