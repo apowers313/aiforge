@@ -96,7 +96,7 @@ jobs:
       - run: npm run build
       - run: npm run test:e2e
         env:
-          E2E_SKIP_SERVER: true
+          AIFORGE_AUTH_GUID: test-guid
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

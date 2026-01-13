@@ -57,12 +57,15 @@ async function handleResponse<T>(response: Response): Promise<T> {
     let code: string | undefined;
 
     try {
-      const json = JSON.parse(text) as { error?: { message?: string; code?: string } };
-      if (json.error?.message) {
-        message = json.error.message;
+      const json = JSON.parse(text) as { error?: string; message?: string; code?: string };
+      // Server sends { error: "message", message: "message", code: "CODE" }
+      if (json.message) {
+        message = json.message;
+      } else if (json.error) {
+        message = json.error;
       }
-      if (json.error?.code) {
-        code = json.error.code;
+      if (json.code) {
+        code = json.code;
       }
     } catch {
       if (text) {

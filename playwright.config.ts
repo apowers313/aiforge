@@ -41,7 +41,7 @@ export default defineConfig({
   webServer: process.env.E2E_SKIP_SERVER
     ? undefined
     : {
-        command: 'npm run dev',
+        command: process.env.CI ? 'npm run dev:ci' : 'npm run dev',
         url: 'http://localhost:9050',
         reuseExistingServer: !process.env.CI,
         timeout: 120000,

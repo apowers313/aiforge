@@ -52,10 +52,11 @@ describe('ApiClient', () => {
   });
 
   it('includes error message from JSON response', async () => {
+    // Server sends { error: "message", message: "message", code: "CODE" }
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 400,
-      text: () => Promise.resolve(JSON.stringify({ error: { message: 'Bad request' } })),
+      text: () => Promise.resolve(JSON.stringify({ error: 'Bad request', message: 'Bad request', code: 'BAD_REQUEST' })),
     });
 
     await expect(api.getProjects()).rejects.toThrow('Bad request');

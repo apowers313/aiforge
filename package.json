@@ -10,6 +10,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npx servherd start -n aiforge-server-dev -e AIFORGE_PORT={{port}} --port 9050 -e AIFORGE_AUTH_GUID={{aiforge-auth}} -- tsx watch src/server/index.ts",
     "dev:client": "npx servherd start -n aiforge-client-dev -e HOST={{hostname}} -e AIFORGE_AUTH_GUID={{aiforge-auth}} -- vite --port {{port}} --host {{hostname}}",
+    "dev:ci": "concurrently --kill-others \"AIFORGE_PORT=9051 tsx src/server/index.ts\" \"AIFORGE_SERVER_PORT=9051 vite --port 9050\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
