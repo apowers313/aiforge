@@ -92,7 +92,7 @@ export class ReconnectingWebSocket {
 
     console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: Creating new WebSocket to ${this._url}`);
     this._ws = new WebSocket(this._url);
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: WebSocket created, readyState=${this._ws.readyState}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: WebSocket created, readyState=${String(this._ws.readyState)}`);
 
     this._ws.onopen = (): void => {
       console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: onopen fired!`);

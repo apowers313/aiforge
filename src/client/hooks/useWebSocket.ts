@@ -103,7 +103,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
   }, [onMessage, onOpen, onClose, onError]);
 
   const connect = useCallback(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() called, wsRef.current=${!!wsRef.current}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() called, wsRef.current=${String(!!wsRef.current)}`);
     if (wsRef.current) {
       console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() - already connected, returning`);
       return;

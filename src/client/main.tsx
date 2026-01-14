@@ -18,17 +18,17 @@ const originalConsoleLog = console.log.bind(console);
 const originalConsoleWarn = console.warn.bind(console);
 const originalConsoleError = console.error.bind(console);
 
-console.log = (...args: unknown[]) => {
+console.log = (...args: unknown[]): void => {
   originalConsoleLog(...args);
-  remoteLogger.log('INFO', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
+  remoteLogger.log('INFO', args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
 };
-console.warn = (...args: unknown[]) => {
+console.warn = (...args: unknown[]): void => {
   originalConsoleWarn(...args);
-  remoteLogger.log('WARN', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
+  remoteLogger.log('WARN', args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
 };
-console.error = (...args: unknown[]) => {
+console.error = (...args: unknown[]): void => {
   originalConsoleError(...args);
-  remoteLogger.log('ERROR', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
+  remoteLogger.log('ERROR', args.map((a) => typeof a === 'string' ? a : JSON.stringify(a)).join(' '));
 };
 
 console.log('[REMOTE_LOGGER] Remote logging initialized');

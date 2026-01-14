@@ -149,25 +149,25 @@ export async function waitForServerHealth(options: {
   onAttempt?: (attempt: number) => void;
 } = {}): Promise<HealthResponse> {
   const { maxAttempts = 10, delayMs = 1000, onAttempt } = options;
-  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth START (maxAttempts=${maxAttempts}, delayMs=${delayMs})`);
+  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth START (maxAttempts=${String(maxAttempts)}, delayMs=${String(delayMs)})`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt}/${maxAttempts}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)}/${String(maxAttempts)}`);
     onAttempt?.(attempt);
     try {
       const health = await checkServerHealth();
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt} response: status=${health.status}, websocket=${health.services.websocket}`);
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)} response: status=${health.status}, websocket=${String(health.services.websocket)}`);
       if (health.status === 'ok' && health.services.websocket) {
-        console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth SUCCESS after ${attempt} attempt(s)`);
+        console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth SUCCESS after ${String(attempt)} attempt(s)`);
         return health;
       }
     } catch (err) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt} FAILED:`, err);
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)} FAILED:`, err);
       // Server not ready yet, will retry
     }
 
     if (attempt < maxAttempts) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth waiting ${delayMs}ms before retry...`);
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth waiting ${String(delayMs)}ms before retry...`);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }

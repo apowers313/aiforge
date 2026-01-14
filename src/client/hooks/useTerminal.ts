@@ -102,12 +102,12 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
       return;
     }
 
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal handleMessage: type=${msg.type}, shellId=${msg.shellId}, dataLen=${msg.data?.length ?? 0}, isScrollback=${msg.isScrollback ?? false}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal handleMessage: type=${msg.type}, shellId=${msg.shellId ?? ''}, dataLen=${String(msg.data?.length ?? 0)}, isScrollback=${String(msg.isScrollback ?? false)}`);
 
     switch (msg.type) {
       case 'output':
         if (msg.data) {
-          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Calling onData callback with ${msg.data.length} bytes`);
+          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Calling onData callback with ${String(msg.data.length)} bytes`);
           onDataRef.current?.(msg.data);
           // Record activity for AI shell indicator (only for live output, not scrollback replay)
           if (!msg.isScrollback) {
@@ -168,7 +168,7 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
   // Attach to shell when WebSocket is connected
   // Using a separate effect ensures attach is sent on remount (e.g., React StrictMode)
   useEffect(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal attach effect: ws.isConnected=${ws.isConnected}, shellId=${shellId}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal attach effect: ws.isConnected=${String(ws.isConnected)}, shellId=${shellId}`);
     // Reset attached state on each effect run (handles StrictMode remount)
     attachedRef.current = false;
 

@@ -70,7 +70,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
   // Handle terminal data
   const handleData = useCallback((data: string) => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData received ${data.length} bytes`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData received ${String(data.length)} bytes`);
     const xterm = xtermRef.current;
     if (!xterm) {
       console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: xterm not ready, buffering`);
@@ -115,7 +115,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
   // Initialize xterm - depends on terminalElement state (callback ref pattern)
   useEffect(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm init effect running, terminalElement=${!!terminalElement}, xtermRef.current=${!!xtermRef.current}`);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm init effect running, terminalElement=${String(!!terminalElement)}, xtermRef.current=${String(!!xtermRef.current)}`);
     if (!terminalElement || xtermRef.current) {
       return;
     }
@@ -158,7 +158,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
     // Flush any buffered data that arrived before xterm was ready
     if (dataBufferRef.current.length > 0) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Flushing ${dataBufferRef.current.length} buffered data chunks`);
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Flushing ${String(dataBufferRef.current.length)} buffered data chunks`);
       for (const data of dataBufferRef.current) {
         xterm.write(data);
       }
