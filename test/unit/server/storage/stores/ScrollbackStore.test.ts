@@ -59,7 +59,7 @@ describe('ScrollbackStore', () => {
       expect(store.getFromMemory('shell-2')[0].data).toBe('shell 2 output');
     });
 
-    it('trims memory buffer when exceeding maxMemoryEntries', () => {
+    it('trims memory buffer when exceeding maxMemoryEntries', async () => {
       const smallStore = new ScrollbackStore({
         directory: tempDir,
         maxMemoryEntries: 5,
@@ -73,6 +73,9 @@ describe('ScrollbackStore', () => {
       expect(entries).toHaveLength(5);
       expect(entries[0].data).toBe('entry 5');
       expect(entries[4].data).toBe('entry 9');
+
+      // Clean up the additional store to avoid directory not empty errors
+      await smallStore.flush();
     });
 
     it('writes entries to disk asynchronously', async () => {
@@ -157,6 +160,9 @@ describe('ScrollbackStore', () => {
       expect(loaded).toHaveLength(3);
       expect(loaded[0].data).toBe('entry 7');
       expect(loaded[2].data).toBe('entry 9');
+
+      // Clean up the additional store to avoid directory not empty errors
+      await smallStore.flush();
     });
   });
 
@@ -276,6 +282,9 @@ describe('ScrollbackStore', () => {
       // Should have fewer lines than originally written due to rotation
       expect(lines.length).toBeLessThan(10);
       expect(lines.length).toBeGreaterThan(0);
+
+      // Clean up the additional store to avoid directory not empty errors
+      await smallStore.flush();
     });
   });
 });
