@@ -8,6 +8,7 @@ import { EmptyState } from '@client/components/common/EmptyState';
 import { AddProjectModal } from '@client/components/projects/AddProjectModal';
 import { useProjects, useCreateProject } from '@client/hooks/useProjects';
 import { useAllShells, useActiveShellId } from '@client/hooks/useShells';
+import { ApiError } from '@client/services/errors';
 
 export function AppShellLayout(): React.ReactElement {
   const sidebarCollapsed = useUIStore((state) => state.sidebarCollapsed);
@@ -27,6 +28,13 @@ export function AppShellLayout(): React.ReactElement {
     createProjectMutation.mutate(path, {
       onSuccess: () => {
         closeAddProjectModal();
+      },
+      onError: (error) => {
+        // If the project already exists (409 Conflict), close the modal anyway
+        // since the user's goal is achieved
+        if (ApiError.isApiError(error) && error.status === 409) {
+          closeAddProjectModal();
+        }
       },
     });
   };

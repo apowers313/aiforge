@@ -9,7 +9,7 @@ export default tseslint.config(
   ...tseslint.configs.stylisticTypeChecked,
   // Server and shared files use tsconfig.json (NodeNext)
   {
-    files: ['src/server/**/*.ts', 'src/shared/**/*.ts', 'test/unit/server/**/*.ts', 'test/unit/shared/**/*.ts', 'test/integration/**/*.ts', 'test/helpers/**/*.ts', 'test/mocks/**/*.ts', 'test/setup.ts', 'test/e2e/**/*.ts', 'scripts/**/*.ts'],
+    files: ['src/server/**/*.ts', 'src/shared/**/*.ts', 'test/unit/server/**/*.ts', 'test/unit/shared/**/*.ts', 'test/integration/**/*.ts', 'test/helpers/**/*.ts', 'test/mocks/**/*.ts', 'test/setup.ts', 'test/global-setup.ts', 'test/test-isolation.ts', 'test/e2e/**/*.ts', 'scripts/**/*.ts'],
     languageOptions: {
       parserOptions: {
         project: './tsconfig.json',

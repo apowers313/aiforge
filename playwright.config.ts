@@ -3,24 +3,28 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright configuration for AIForge E2E tests
+ *
+ * Test isolation is handled by fixtures.ts which creates a fresh server
+ * and data directory for each test file.
+ *
  * @see https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({
   testDir: './test/e2e',
-  /* Run tests in files in parallel */
+  /* Run tests in files in parallel - each file gets its own isolated server */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* Each worker gets its own isolated server, so parallel is safe */
+  workers: process.env.CI ? 2 : 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: process.env.CI ? 'github' : 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:9050',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:9060',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -37,15 +41,8 @@ export default defineConfig({
     },
   ],
 
-  /* Run your local dev server before starting the tests */
-  webServer: process.env.E2E_SKIP_SERVER
-    ? undefined
-    : {
-        command: process.env.CI ? 'npm run dev:ci' : 'npm run dev',
-        url: 'http://localhost:9050',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120000,
-      },
+  /* Server is managed per-test by fixtures.ts for complete isolation */
+  /* Each test file gets its own server instance and data directory */
 
   /* Global timeout for tests */
   timeout: 30000,

@@ -1,10 +1,8 @@
 /**
  * E2E tests for authentication flows
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { loginAs } from './helpers/auth.js';
-
-const TEST_GUID = process.env.TEST_GUID ?? process.env.AIFORGE_AUTH_GUID ?? 'test-guid';
 
 test.describe('Authentication', () => {
   test('redirects unauthenticated users to login', async ({ page }) => {
@@ -21,24 +19,24 @@ test.describe('Authentication', () => {
       .toContainText('Invalid');
   });
 
-  test('logs in and redirects to home', async ({ page }) => {
+  test('logs in and redirects to home', async ({ page, testGuid }) => {
     await page.goto('/login');
-    await page.fill('[data-testid="guid-input"]', TEST_GUID);
+    await page.fill('[data-testid="guid-input"]', testGuid);
     await page.click('[data-testid="login-button"]');
 
     await expect(page).toHaveURL('/');
     await expect(page.locator('[data-testid="sidebar"]')).toBeVisible();
   });
 
-  test('persists session across page reload', async ({ page }) => {
-    await loginAs(page, TEST_GUID);
+  test('persists session across page reload', async ({ page, testGuid }) => {
+    await loginAs(page, testGuid);
     await page.reload();
 
     await expect(page).toHaveURL('/');
   });
 
-  test('logs out and clears session', async ({ page }) => {
-    await loginAs(page, TEST_GUID);
+  test('logs out and clears session', async ({ page, testGuid }) => {
+    await loginAs(page, testGuid);
     await page.click('[data-testid="user-menu"]');
     await page.click('[data-testid="logout-button"]');
 

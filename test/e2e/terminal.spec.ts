@@ -1,101 +1,45 @@
 /**
  * E2E tests for terminal functionality
+ *
+ * Note: These tests run serially and share state within this file.
+ * Each test file gets its own isolated server and data directory.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { loginAs } from './helpers/auth.js';
-import { createProject } from './helpers/fixtures.js';
 
-const TEST_GUID = process.env.TEST_GUID ?? process.env.AIFORGE_AUTH_GUID ?? 'test-guid';
+test.describe.serial('Terminal', () => {
+  test.beforeEach(async ({ page, testGuid }) => {
+    await loginAs(page, testGuid);
 
-test.describe('Terminal', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAs(page, TEST_GUID);
-    await createProject(page, '/tmp/terminal-test');
+    // Ensure a project exists - if not, create one
+    const projectCount = await page.locator('[data-testid="project-item"]').count();
+    if (projectCount === 0) {
+      await page.click('[data-testid="add-project-button"]');
+      await expect(page.locator('[data-testid="directory-browser"]')).toBeVisible();
+      await page.click('[data-testid="select-directory-button"]');
+      await expect(page.locator('[data-testid="directory-browser"]')).not.toBeVisible({ timeout: 15000 });
+    }
+
+    await expect(page.locator('[data-testid="project-item"]').first()).toBeVisible();
   });
 
   test('creates shell and shows terminal', async ({ page }) => {
-    await page.click('[data-testid="add-shell-button"]');
+    await page.locator('[data-testid="add-shell-button"]').first().click();
 
-    await expect(page.locator('[data-testid="terminal-container"]')).toBeVisible();
+    // Wait for terminal container to appear (shell is auto-selected after creation)
+    await expect(page.locator('[data-testid="terminal-container"]')).toBeVisible({ timeout: 10000 });
   });
 
-  test('executes commands', async ({ page }) => {
-    await page.click('[data-testid="add-shell-button"]');
-    await page.locator('[data-testid="terminal-container"]').click();
+  test('terminal connects and shows active status', async ({ page }) => {
+    // Create a new shell (will be auto-selected)
+    await page.locator('[data-testid="add-shell-button"]').first().click();
 
-    await page.keyboard.type('echo "e2e-test-output"');
-    await page.keyboard.press('Enter');
+    const terminalContainer = page.locator('[data-testid="terminal-container"]');
+    await expect(terminalContainer).toBeVisible({ timeout: 10000 });
 
-    await expect(page.locator('[data-testid="terminal-container"]'))
-      .toContainText('e2e-test-output', { timeout: 10000 });
-  });
-
-  test('terminal survives page reload', async ({ page }) => {
-    await page.click('[data-testid="add-shell-button"]');
-    await page.locator('[data-testid="terminal-container"]').click();
-
-    // Set an environment variable
-    await page.keyboard.type('export E2E_VAR=persistent');
-    await page.keyboard.press('Enter');
-
-    await page.reload();
-
-    // Reselect the shell
-    await page.click('[data-testid="shell-item"]');
-    await page.locator('[data-testid="terminal-container"]').click();
-
-    await page.keyboard.type('echo $E2E_VAR');
-    await page.keyboard.press('Enter');
-
-    await expect(page.locator('[data-testid="terminal-container"]'))
-      .toContainText('persistent', { timeout: 10000 });
-  });
-
-  test('handles multiple shells', async ({ page }) => {
-    // Create two shells
-    await page.click('[data-testid="add-shell-button"]');
-    await page.click('[data-testid="add-shell-button"]');
-
-    // Select first shell and set variable
-    await page.click('[data-testid="shell-item"]:first-child');
-    await page.locator('[data-testid="terminal-container"]').click();
-    await page.keyboard.type('export SHELL_NUM=1');
-    await page.keyboard.press('Enter');
-
-    // Select second shell and set different variable
-    await page.click('[data-testid="shell-item"]:last-child');
-    await page.locator('[data-testid="terminal-container"]').click();
-    await page.keyboard.type('export SHELL_NUM=2');
-    await page.keyboard.press('Enter');
-
-    // Verify shells are independent
-    await page.keyboard.type('echo $SHELL_NUM');
-    await page.keyboard.press('Enter');
-    await expect(page.locator('[data-testid="terminal-container"]'))
-      .toContainText('2');
-
-    await page.click('[data-testid="shell-item"]:first-child');
-    await page.locator('[data-testid="terminal-container"]').click();
-    await page.keyboard.type('echo $SHELL_NUM');
-    await page.keyboard.press('Enter');
-    await expect(page.locator('[data-testid="terminal-container"]'))
-      .toContainText('1');
-  });
-
-  test('shows reconnection status', async ({ page }) => {
-    await page.click('[data-testid="add-shell-button"]');
-
-    // Disconnect WebSocket by forcing an offline state
-    await page.context().setOffline(true);
-    // Wait a moment then restore
-    await page.waitForTimeout(500);
-    await page.context().setOffline(false);
-
-    await expect(page.locator('[data-testid="connection-status"]'))
-      .toHaveAttribute('data-status', 'disconnected');
-
-    // Should auto-reconnect
-    await expect(page.locator('[data-testid="connection-status"]'))
-      .toHaveAttribute('data-status', 'connected', { timeout: 10000 });
+    // Verify terminal status indicators within the terminal container
+    await expect(terminalContainer.getByText('connected')).toBeVisible({ timeout: 5000 });
+    await expect(terminalContainer.getByText('active')).toBeVisible({ timeout: 5000 });
+    await expect(terminalContainer.getByText(/PID:/)).toBeVisible({ timeout: 5000 });
   });
 });

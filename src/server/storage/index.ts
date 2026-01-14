@@ -28,9 +28,10 @@ export interface Storage {
 
 /**
  * Get the data directory path
+ * Configurable via AIFORGE_DATA_DIR environment variable for test isolation
  */
 export function getDataDir(): string {
-  return join(homedir(), '.aiforge', 'data');
+  return process.env.AIFORGE_DATA_DIR ?? join(homedir(), '.aiforge', 'data');
 }
 
 /**

@@ -22,25 +22,38 @@ export class JsonStore<T> {
   }
 
   /**
-   * Ensure the file and parent directories exist
+   * Ensure the file and parent directories exist.
+   * Handles external directory deletion by always verifying existence.
    */
   private async ensureFile(): Promise<void> {
-    if (this.initPromise) {
-      return this.initPromise;
+    // Quick check - if file exists, we're done
+    if (existsSync(this.filePath)) {
+      return;
     }
 
+    // If another call is already creating the file, wait for it
+    if (this.initPromise) {
+      await this.initPromise;
+      return;
+    }
+
+    // Create directory and file
     this.initPromise = (async (): Promise<void> => {
       const dir = dirname(this.filePath);
       if (!existsSync(dir)) {
         await mkdir(dir, { recursive: true });
       }
-
+      // Double-check file doesn't exist (another process might have created it)
       if (!existsSync(this.filePath)) {
         await writeFile(this.filePath, JSON.stringify(this.defaultValue, null, 2), 'utf-8');
       }
     })();
 
-    return this.initPromise;
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = null;
+    }
   }
 
   /**
@@ -93,4 +106,5 @@ export class JsonStore<T> {
       await release();
     }
   }
+
 }

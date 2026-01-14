@@ -5,19 +5,21 @@ import type { Page } from '@playwright/test';
 import { loginAs } from './auth.js';
 
 /**
- * Create a project at the specified path
+ * Create a project using the directory browser (selects current/home directory)
  */
-export async function createProject(page: Page, _path: string): Promise<void> {
+export async function createProject(page: Page): Promise<void> {
   await page.click('[data-testid="add-project-button"]');
   await page.waitForSelector('[data-testid="directory-browser"]');
-
-  // Type path directly into the path display and navigate
-  // The modal shows the current path, we need to navigate to the target
-  // For now, we'll select the current directory which is typically the home dir
   await page.click('[data-testid="select-directory-button"]');
 
-  // Wait for project to appear
-  await page.waitForSelector('[data-testid="project-item"]');
+  // Wait for modal to close (with generous timeout for animation)
+  await page.waitForSelector('[data-testid="directory-browser"]', {
+    state: 'hidden',
+    timeout: 15000,
+  });
+
+  // Wait for project to appear in sidebar
+  await page.waitForSelector('[data-testid="project-item"]', { timeout: 10000 });
 }
 
 /**
@@ -32,20 +34,21 @@ export async function setupLoggedInUser(page: Page): Promise<void> {
 }
 
 /**
- * Clean up test projects created during E2E tests
+ * Clean up all projects (delete each one)
+ * Note: Project deletion doesn't require confirmation
  */
-export async function cleanupTestProjects(page: Page): Promise<void> {
-  // Get all project items
-  const projectItems = page.locator('[data-testid="project-item"]');
-  const count = await projectItems.count();
+export async function cleanupProjects(page: Page): Promise<void> {
+  let count = await page.locator('[data-testid="project-item"]').count();
 
-  // Delete each project
-  for (let i = count - 1; i >= 0; i--) {
-    const projectItem = projectItems.nth(i);
-    await projectItem.hover();
-    await projectItem.locator('[data-testid="project-menu"]').click();
-    await page.click('[data-testid="delete-project"]');
-    await page.click('[data-testid="confirm-delete"]');
+  while (count > 0) {
+    // Click menu on first project and delete
+    // Use first() to be explicit and force: true to ensure click works
+    await page.locator('[data-testid="project-menu"]').first().click({ force: true });
+    await page.locator('[data-testid="delete-project"]').click({ force: true });
+
+    // Wait for deletion animation and React Query cache invalidation
+    await page.waitForTimeout(1000);
+    count = await page.locator('[data-testid="project-item"]').count();
   }
 }
 

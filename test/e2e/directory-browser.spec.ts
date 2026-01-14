@@ -1,14 +1,12 @@
 /**
  * E2E tests for directory browser functionality
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 import { loginAs } from './helpers/auth.js';
 
-const TEST_GUID = process.env.TEST_GUID ?? process.env.AIFORGE_AUTH_GUID ?? 'test-guid';
-
 test.describe('Directory Browser', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAs(page, TEST_GUID);
+  test.beforeEach(async ({ page, testGuid }) => {
+    await loginAs(page, testGuid);
   });
 
   test('opens at home directory', async ({ page }) => {
