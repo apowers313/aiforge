@@ -66,6 +66,7 @@ describe('TerminalHandler', () => {
       type: 'output',
       shellId: 'shell-1',
       data: 'output data',
+      isScrollback: false,
     });
   });
 
@@ -107,6 +108,7 @@ describe('TerminalHandler', () => {
       type: 'output',
       shellId: 'shell-1',
       data: 'test output',
+      isScrollback: false,
     });
   });
 
@@ -162,6 +164,7 @@ describe('TerminalHandler', () => {
       type: 'output',
       shellId: 'shell-1',
       data: 'before disconnect',
+      isScrollback: false,
     });
 
     // Disconnect old WebSocket
@@ -181,6 +184,7 @@ describe('TerminalHandler', () => {
       type: 'output',
       shellId: 'shell-1',
       data: 'after disconnect',
+      isScrollback: false,
     });
   });
 
@@ -203,11 +207,13 @@ describe('TerminalHandler', () => {
       type: 'output',
       shellId: 'shell-1',
       data: 'broadcast',
+      isScrollback: false,
     });
     expect(ws2.sent).toContainEqual({
       type: 'output',
       shellId: 'shell-1',
       data: 'broadcast',
+      isScrollback: false,
     });
   });
 

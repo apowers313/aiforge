@@ -18,7 +18,7 @@ import { WorkspaceStateService } from './services/workspace/WorkspaceStateServic
 import { PtyPool } from './services/pty/index.js';
 import { attachAuthService } from './api/middleware/auth.js';
 import { errorHandler, notFoundHandler } from './api/middleware/error.js';
-import { createApiRouter } from './api/routes/index.js';
+import { createApiRouter, setWebSocketReady } from './api/routes/index.js';
 import { createWebSocketServer } from './websocket/index.js';
 import type { ServerConfig } from '../shared/types/index.js';
 
@@ -40,8 +40,10 @@ export async function createApp(): Promise<AppResult> {
   const storage = await initStorage();
 
   // Initialize PTY pool for real terminal sessions with scrollback persistence
+  // Enable persistent daemons so shells survive server restarts
   const ptyPool = new PtyPool({
     scrollbackStore: storage.scrollback,
+    usePersistentDaemons: true,
   });
 
   // Initialize services
@@ -108,9 +110,18 @@ export async function startServer(): Promise<void> {
   // Create WebSocket server for terminal I/O
   createWebSocketServer({
     server,
-    ptyManager: ptyPool.manager,
+    ptyPool,
     path: '/ws/terminal',
   });
+
+  // Mark WebSocket as ready for health checks
+  setWebSocketReady(true);
+
+  // Reconnect to persistent daemon sessions that survived restart
+  const reconnected = await shellService.reconnectDaemons();
+  if (reconnected > 0) {
+    logger.info({ count: reconnected }, 'Reconnected to persistent shell daemons');
+  }
 
   // Cleanup orphaned PTY sessions on startup
   void shellService.cleanupOrphans();
@@ -118,6 +129,7 @@ export async function startServer(): Promise<void> {
   // Handle graceful shutdown
   const shutdown = (): void => {
     logger.info('Shutting down server...');
+    setWebSocketReady(false);
     shellService.shutdown();
     server.close(() => {
       logger.info('Server stopped');

@@ -1,7 +1,7 @@
 /**
  * TerminalHandler - WebSocket message handler for terminal I/O
  */
-import type { PtyManager } from '@server/services/pty/PtyManager.js';
+import type { PtyPool } from '@server/services/pty/PtyPool.js';
 import { logger } from '@server/utils/logger.js';
 
 /**
@@ -44,18 +44,20 @@ interface ClientAttachment {
  * TerminalHandler manages WebSocket client connections to PTY sessions
  */
 export class TerminalHandler {
-  private readonly _ptyManager: PtyManager;
+  private readonly _ptyPool: PtyPool;
   private readonly _clientAttachments = new Map<WebSocketLike, ClientAttachment[]>();
 
-  constructor(ptyManager: PtyManager) {
-    this._ptyManager = ptyManager;
+  constructor(ptyPool: PtyPool) {
+    this._ptyPool = ptyPool;
   }
 
   /**
    * Handle incoming WebSocket message
    */
   handleMessage(ws: WebSocketLike, message: TerminalMessage): void {
+    const startTime = Date.now();
     logger.debug({ type: message.type, shellId: message.shellId }, 'Received terminal message');
+    logger.info({ type: message.type, shellId: message.shellId, startTime }, '[TERMINAL_SWITCH_SERVER] Received message');
     switch (message.type) {
       case 'input':
         this._handleInput(ws, message);
@@ -93,17 +95,19 @@ export class TerminalHandler {
    * Attach a client to a shell session
    */
   attachClient(ws: WebSocketLike, shellId: string): void {
+    const attachStartTime = Date.now();
+    logger.info({ shellId, attachStartTime }, '[TERMINAL_SWITCH_SERVER] attachClient START');
     logger.debug({ shellId }, 'Attaching client to shell');
-    const session = this._ptyManager.get(shellId);
+    const session = this._ptyPool.get(shellId);
     if (!session) {
       logger.warn({ shellId }, 'Shell not found in PTY manager');
       this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
       return;
     }
-    logger.debug({ shellId, pid: session.pid }, 'Found PTY session, setting up data forwarding');
+    logger.info({ shellId, elapsed: Date.now() - attachStartTime }, '[TERMINAL_SWITCH_SERVER] Found PTY session');
 
     // Replay scrollback buffer first
-    this._replayScrollback(ws, shellId);
+    this._replayScrollback(ws, shellId, attachStartTime);
 
     // Set up data forwarding
     const dataCleanup = session.onData((data: string) => {
@@ -124,14 +128,17 @@ export class TerminalHandler {
   /**
    * Replay scrollback buffer to a client
    */
-  private _replayScrollback(ws: WebSocketLike, shellId: string): void {
-    const scrollbackStore = this._ptyManager.scrollbackStore;
+  private _replayScrollback(ws: WebSocketLike, shellId: string, attachStartTime?: number): void {
+    const scrollbackStore = this._ptyPool.scrollbackStore;
     if (!scrollbackStore) {
+      logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] No scrollback store');
       return;
     }
 
+    logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Getting scrollback from memory');
     // Get scrollback from memory (already loaded)
     const entries = scrollbackStore.getFromMemory(shellId);
+    logger.info({ shellId, entries: entries.length, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Got scrollback entries');
     if (entries.length === 0) {
       return;
     }
@@ -144,8 +151,11 @@ export class TerminalHandler {
       .map((e) => e.data)
       .join('');
 
+    logger.info({ shellId, outputDataLen: outputData.length, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Scrollback data prepared');
+
     if (outputData.length > 0) {
-      this._sendOutput(ws, shellId, outputData);
+      this._sendOutput(ws, shellId, outputData, true);
+      logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Scrollback SENT');
     }
   }
 
@@ -171,7 +181,7 @@ export class TerminalHandler {
     const { shellId, data } = message;
     if (!shellId || data === undefined) return;
 
-    const session = this._ptyManager.get(shellId);
+    const session = this._ptyPool.get(shellId);
     if (!session) {
       this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
       return;
@@ -184,7 +194,7 @@ export class TerminalHandler {
     const { shellId, cols, rows } = message;
     if (!shellId || cols === undefined || rows === undefined) return;
 
-    const session = this._ptyManager.get(shellId);
+    const session = this._ptyPool.get(shellId);
     if (!session) {
       this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
       return;
@@ -207,11 +217,12 @@ export class TerminalHandler {
     this.detachClient(ws, shellId);
   }
 
-  private _sendOutput(ws: WebSocketLike, shellId: string, data: string): void {
+  private _sendOutput(ws: WebSocketLike, shellId: string, data: string, isScrollback = false): void {
     ws.send(JSON.stringify({
       type: 'output',
       shellId,
       data,
+      isScrollback,
     }));
   }
 

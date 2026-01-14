@@ -15,6 +15,9 @@ export interface Project {
 // Shell status
 export type ShellStatus = 'inactive' | 'active' | 'error';
 
+// Shell type - regular bash shell or AI shell
+export type ShellType = 'bash' | 'ai';
+
 // Shell represents a terminal session within a project
 export interface Shell {
   id: string;
@@ -22,7 +25,11 @@ export interface Shell {
   name: string;
   cwd: string;
   status: ShellStatus;
+  type: ShellType;
   pid: number | null;
+  socketPath: string | null; // Unix socket path for persistent daemon (null if not using daemon)
+  lastActivityAt: string | null; // ISO 8601 date string - when shell last had input or output
+  done: boolean; // Whether the AI shell is marked as done (only applies to AI shells)
   createdAt: string; // ISO 8601 date string
   updatedAt: string; // ISO 8601 date string
 }

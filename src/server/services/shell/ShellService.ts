@@ -2,10 +2,11 @@
  * ShellService - Shell business logic
  */
 import { randomUUID } from 'node:crypto';
-import type { Shell } from '@shared/types/index.js';
+import type { Shell, ShellType } from '@shared/types/index.js';
 import type { ShellStore } from '../../storage/stores/ShellStore.js';
 import type { ProjectStore } from '../../storage/stores/ProjectStore.js';
 import { PtyPool, type ShellStoreInterface } from '../pty/index.js';
+import { getSocketPath } from '../pty/daemon/protocol.js';
 
 export interface ShellServiceOptions {
   shellStore: ShellStore;
@@ -17,6 +18,8 @@ export class ShellService {
   private readonly shellStore: ShellStore;
   private readonly projectStore: ProjectStore;
   private readonly ptyPool: PtyPool | null;
+  private readonly lastOutputTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lastOutputDebounceMs = 1000; // Debounce lastOutputAt updates by 1 second
 
   constructor(options: ShellServiceOptions) {
     this.shellStore = options.shellStore;
@@ -28,7 +31,39 @@ export class ShellService {
       this.ptyPool.on('session:exited', (shellId: string, exitCode: number) => {
         void this._handleSessionExit(shellId, exitCode);
       });
+
+      // Track lastActivityAt for AI shells (debounced to reduce disk writes)
+      // Listen to both output and input activity
+      this.ptyPool.on('session:activity', (shellId: string) => {
+        void this._handleSessionActivity(shellId);
+      });
     }
+  }
+
+  /**
+   * Handle PTY session activity (update lastActivityAt for AI shells)
+   */
+  private async _handleSessionActivity(shellId: string): Promise<void> {
+    // Check if shell is an AI shell (only track lastActivityAt for AI shells)
+    const shell = await this.shellStore.getById(shellId);
+    if (shell?.type !== 'ai') {
+      return;
+    }
+
+    // Debounce the update to reduce disk writes
+    const existingTimer = this.lastOutputTimers.get(shellId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      this.lastOutputTimers.delete(shellId);
+      void this.shellStore.update(shellId, {
+        lastActivityAt: new Date().toISOString(),
+      });
+    }, this.lastOutputDebounceMs);
+
+    this.lastOutputTimers.set(shellId, timer);
   }
 
   /**
@@ -58,7 +93,7 @@ export class ShellService {
   /**
    * Create a new shell for a project
    */
-  async create(projectId: string, name?: string): Promise<Shell> {
+  async create(projectId: string, name?: string, type: ShellType = 'bash'): Promise<Shell> {
     // Verify project exists
     const project = await this.projectStore.getById(projectId);
     if (!project) {
@@ -69,7 +104,8 @@ export class ShellService {
     let shellName = name;
     if (!shellName) {
       const shellNumber = await this.shellStore.getNextShellNumber();
-      shellName = `shell-${String(shellNumber)}`;
+      const prefix = type === 'ai' ? 'ai' : 'shell';
+      shellName = `${prefix}-${String(shellNumber)}`;
     }
 
     const now = new Date().toISOString();
@@ -79,7 +115,11 @@ export class ShellService {
       name: shellName,
       cwd: project.path,
       status: 'inactive',
+      type,
       pid: null,
+      socketPath: null,
+      lastActivityAt: null,
+      done: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -91,7 +131,7 @@ export class ShellService {
   /**
    * Update a shell's properties
    */
-  async update(id: string, updates: Partial<Pick<Shell, 'name' | 'status' | 'pid' | 'cwd'>>): Promise<Shell | null> {
+  async update(id: string, updates: Partial<Pick<Shell, 'name' | 'status' | 'pid' | 'cwd' | 'lastActivityAt' | 'done' | 'socketPath'>>): Promise<Shell | null> {
     return this.shellStore.update(id, updates);
   }
 
@@ -119,9 +159,20 @@ export class ShellService {
       throw new Error('Shell not found');
     }
 
-    // Check if already running
+    // Check if already running in memory
     if (this.ptyPool.get(shellId)) {
       return shell;
+    }
+
+    // In daemon mode, check if a daemon is already running we can reconnect to
+    if (this.ptyPool.usePersistentDaemons && shell.socketPath) {
+      const client = await this.ptyPool.attach(shellId, shell.cwd);
+      if (client) {
+        // Successfully reconnected to existing daemon
+        return shell;
+      }
+      // Socket was stale, clear it and spawn new daemon
+      await this.shellStore.update(shellId, { socketPath: null });
     }
 
     // Load scrollback from disk first (for replay on client attach)
@@ -136,7 +187,24 @@ export class ShellService {
       }
     }
 
-    // Spawn PTY session
+    // Spawn PTY session (use async for daemon mode)
+    if (this.ptyPool.usePersistentDaemons) {
+      await this.ptyPool.spawnAsync(shellId, {
+        cwd: shell.cwd,
+      });
+
+      // Update shell status with socket path
+      const socketPath = getSocketPath(shellId);
+      const updated = await this.shellStore.update(shellId, {
+        status: 'active',
+        pid: null, // Daemon mode doesn't track PID directly
+        socketPath,
+      });
+
+      return updated ?? shell;
+    }
+
+    // Legacy mode: spawn directly
     const session = this.ptyPool.spawn(shellId, {
       cwd: shell.cwd,
     });
@@ -180,6 +248,24 @@ export class ShellService {
     if (this.ptyPool) {
       await this.ptyPool.cleanupOrphans(this.shellStore as unknown as ShellStoreInterface);
     }
+  }
+
+  /**
+   * Reconnect to all persistent daemon sessions
+   * Call this on server startup to restore sessions that survived restart
+   */
+  async reconnectDaemons(): Promise<number> {
+    if (!this.ptyPool) {
+      return 0;
+    }
+    return this.ptyPool.reconnectDaemons(this.shellStore as unknown as ShellStoreInterface);
+  }
+
+  /**
+   * Check if persistent daemon mode is enabled
+   */
+  get usePersistentDaemons(): boolean {
+    return this.ptyPool?.usePersistentDaemons ?? false;
   }
 
   /**

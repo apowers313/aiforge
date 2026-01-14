@@ -40,6 +40,13 @@ export class ScrollbackStore {
   }
 
   /**
+   * Get the storage directory path
+   */
+  get directory(): string {
+    return this._directory;
+  }
+
+  /**
    * Get the file path for a shell's scrollback
    */
   private _getFilePath(shellId: string): string {

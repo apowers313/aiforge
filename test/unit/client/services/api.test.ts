@@ -204,7 +204,7 @@ describe('ApiClient', () => {
         '/api/projects/project-1/shells',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ name: 'my-shell' }),
+          body: JSON.stringify({ name: 'my-shell', type: 'bash' }),
         }),
       );
     });

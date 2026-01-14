@@ -26,6 +26,10 @@ interface UIState {
   terminalFontSize: number;
   terminalTheme: string;
 
+  // Shell activity tracking (for AI shell activity indicator)
+  // Maps shellId -> timestamp of last activity (input or output)
+  shellActivityTimestamps: Record<string, number>;
+
   // Actions
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -38,6 +42,8 @@ interface UIState {
   setTerminalFontSize: (size: number) => void;
   setTerminalTheme: (themeId: string) => void;
   setWorkspaceState: (state: WorkspaceStateUpdate) => void;
+  recordShellActivity: (shellId: string) => void;
+  getShellActivityTimestamp: (shellId: string) => number | undefined;
   reset: () => void;
 }
 
@@ -51,6 +57,7 @@ const initialState = {
   activeShellId: null as string | null,
   terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
   terminalTheme: DEFAULT_TERMINAL_THEME_ID,
+  shellActivityTimestamps: {} as Record<string, number>,
 };
 
 export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
@@ -127,6 +134,20 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
       terminalFontSize: state.terminalFontSize ?? current.terminalFontSize,
       terminalTheme: state.terminalTheme ?? current.terminalTheme,
     }));
+  },
+
+  recordShellActivity: (shellId: string): void => {
+    set((state) => ({
+      shellActivityTimestamps: {
+        ...state.shellActivityTimestamps,
+        [shellId]: Date.now(),
+      },
+    }));
+  },
+
+  getShellActivityTimestamp: (shellId: string): number | undefined => {
+    // This is a selector, not an action - but zustand allows it
+    return useUIStore.getState().shellActivityTimestamps[shellId];
   },
 
   reset: (): void => {

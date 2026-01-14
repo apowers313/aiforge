@@ -54,7 +54,7 @@ export class ShellStore {
     return counter;
   }
 
-  async update(id: string, updates: Partial<Pick<Shell, 'name' | 'status' | 'pid' | 'cwd'>>): Promise<Shell | null> {
+  async update(id: string, updates: Partial<Pick<Shell, 'name' | 'status' | 'pid' | 'cwd' | 'lastActivityAt' | 'done' | 'socketPath'>>): Promise<Shell | null> {
     let updatedShell: Shell | null = null;
 
     await this.store.update((data) => {

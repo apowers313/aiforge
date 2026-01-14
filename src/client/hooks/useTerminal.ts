@@ -1,8 +1,16 @@
 /**
  * useTerminal - React hook for terminal WebSocket connections
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useWebSocket } from './useWebSocket.js';
+import { useUIStore } from '@client/stores/uiStore';
+
+// Debug helper to get elapsed time since terminal switch started
+function getElapsed(): string {
+  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
+  if (!start) return '?.??';
+  return (performance.now() - start).toFixed(2);
+}
 
 /**
  * Terminal message from server
@@ -13,6 +21,8 @@ interface TerminalMessage {
   data?: string;
   status?: string;
   exitCode?: number;
+  /** True if this output is scrollback replay (not live activity) */
+  isScrollback?: boolean;
 }
 
 /**
@@ -36,13 +46,23 @@ export interface UseTerminalOptions {
 }
 
 /**
+ * Connection error information
+ */
+export interface ConnectionError {
+  type: 'websocket' | 'server_unreachable';
+  message: string;
+}
+
+/**
  * Return type for useTerminal hook
  */
 export interface UseTerminalReturn {
   isConnected: boolean;
+  connectionError: ConnectionError | null;
   write: (data: string) => void;
   resize: (cols: number, rows: number) => void;
   disconnect: () => void;
+  reconnect: () => void;
 }
 
 /**
@@ -58,9 +78,15 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
   // Track if we're attached
   const attachedRef = useRef(false);
 
+  // Connection error state
+  const [connectionError, setConnectionError] = useState<ConnectionError | null>(null);
+
   // Store callbacks in refs
   const onDataRef = useRef(onData);
   const onStatusRef = useRef(onStatus);
+
+  // Get activity recorder from UI store
+  const recordShellActivity = useUIStore((state) => state.recordShellActivity);
 
   useEffect(() => {
     onDataRef.current = onData;
@@ -76,10 +102,17 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
       return;
     }
 
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal handleMessage: type=${msg.type}, shellId=${msg.shellId}, dataLen=${msg.data?.length ?? 0}, isScrollback=${msg.isScrollback ?? false}`);
+
     switch (msg.type) {
       case 'output':
         if (msg.data) {
+          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Calling onData callback with ${msg.data.length} bytes`);
           onDataRef.current?.(msg.data);
+          // Record activity for AI shell indicator (only for live output, not scrollback replay)
+          if (!msg.isScrollback) {
+            recordShellActivity(shellId);
+          }
         }
         break;
       case 'status':
@@ -87,26 +120,66 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
           onStatusRef.current?.(msg.status, msg.exitCode);
         }
         break;
+      case 'error':
+        // Handle server-side errors
+        setConnectionError({
+          type: 'websocket',
+          message: msg.data ?? 'Unknown error',
+        });
+        break;
     }
-  }, [shellId]);
+  }, [shellId, recordShellActivity]);
 
-  // WebSocket connection
+  // Handle WebSocket errors
+  const handleError = useCallback(() => {
+    setConnectionError({
+      type: 'websocket',
+      message: 'WebSocket connection failed',
+    });
+  }, []);
+
+  // Handle WebSocket open - clear error
+  const handleOpen = useCallback(() => {
+    setConnectionError(null);
+  }, []);
+
+  // Handle max retries reached
+  const handleMaxRetries = useCallback(() => {
+    setConnectionError({
+      type: 'server_unreachable',
+      message: 'Unable to connect to server after multiple attempts',
+    });
+  }, []);
+
+  // Memoize reconnect options to prevent unnecessary re-renders
+  const reconnectOptions = useMemo(() => ({
+    onMaxRetriesReached: handleMaxRetries,
+  }), [handleMaxRetries]);
+
+  // WebSocket connection - wait for server health before connecting
   const ws = useWebSocket(wsUrl, {
     onMessage: handleMessage,
+    onError: handleError,
+    onOpen: handleOpen,
+    reconnectOptions,
+    waitForHealth: true,
   });
 
   // Attach to shell when WebSocket is connected
   // Using a separate effect ensures attach is sent on remount (e.g., React StrictMode)
   useEffect(() => {
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal attach effect: ws.isConnected=${ws.isConnected}, shellId=${shellId}`);
     // Reset attached state on each effect run (handles StrictMode remount)
     attachedRef.current = false;
 
     if (ws.isConnected) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Sending ATTACH message for shellId=${shellId}`);
       ws.send({
         type: 'attach',
         shellId,
       });
       attachedRef.current = true;
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: ATTACH message sent`);
     }
 
     // Cleanup: detach and reset state
@@ -128,7 +201,9 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
       shellId,
       data,
     });
-  }, [ws, shellId]);
+    // Record activity for AI shell indicator
+    recordShellActivity(shellId);
+  }, [ws, shellId, recordShellActivity]);
 
   // Send resize event
   const resize = useCallback((cols: number, rows: number) => {
@@ -140,10 +215,18 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
     });
   }, [ws, shellId]);
 
+  // Reconnect function - clears error and reconnects
+  const reconnect = useCallback(() => {
+    setConnectionError(null);
+    ws.connect();
+  }, [ws]);
+
   return {
     isConnected: ws.isConnected,
+    connectionError,
     write,
     resize,
     disconnect: ws.disconnect,
+    reconnect,
   };
 }

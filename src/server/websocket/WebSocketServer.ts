@@ -5,7 +5,7 @@ import { WebSocketServer as WsServer, type WebSocket } from 'ws';
 import type { Server as HttpServer } from 'http';
 import { HeartbeatManager, type HeartbeatWebSocketServer } from './heartbeat.js';
 import { TerminalHandler, type TerminalMessage } from './handlers/terminal.js';
-import type { PtyManager } from '@server/services/pty/PtyManager.js';
+import type { PtyPool } from '@server/services/pty/PtyPool.js';
 import { logger } from '@server/utils/logger.js';
 
 /**
@@ -20,7 +20,7 @@ export interface ExtendedWebSocket extends WebSocket {
  */
 export interface WebSocketServerOptions {
   server: HttpServer;
-  ptyManager: PtyManager;
+  ptyPool: PtyPool;
   path?: string;
   heartbeatInterval?: number;
 }
@@ -31,7 +31,7 @@ export interface WebSocketServerOptions {
 export function createWebSocketServer(options: WebSocketServerOptions): WsServer {
   const {
     server,
-    ptyManager,
+    ptyPool,
     path = '/ws/terminal',
     heartbeatInterval = 30000,
   } = options;
@@ -40,7 +40,7 @@ export function createWebSocketServer(options: WebSocketServerOptions): WsServer
   const wss = new WsServer({ server, path });
 
   // Create terminal handler
-  const terminalHandler = new TerminalHandler(ptyManager);
+  const terminalHandler = new TerminalHandler(ptyPool);
 
   // Create and start heartbeat manager
   const heartbeatManager = new HeartbeatManager(
@@ -108,7 +108,7 @@ export class TerminalWebSocketServer {
   constructor(options: WebSocketServerOptions) {
     const {
       server,
-      ptyManager,
+      ptyPool,
       path = '/ws/terminal',
       heartbeatInterval = 30000,
     } = options;
@@ -117,7 +117,7 @@ export class TerminalWebSocketServer {
     this._wss = new WsServer({ server, path });
 
     // Create terminal handler
-    this._terminalHandler = new TerminalHandler(ptyManager);
+    this._terminalHandler = new TerminalHandler(ptyPool);
 
     // Create heartbeat manager
     this._heartbeatManager = new HeartbeatManager(

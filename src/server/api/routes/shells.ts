@@ -24,10 +24,12 @@ router.use(requireAuth);
 // Request schemas
 const CreateShellSchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  type: z.enum(['bash', 'ai']).optional().default('bash'),
 });
 
 const UpdateShellSchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  done: z.boolean().optional(),
 });
 
 const ProjectIdParamsSchema = z.object({
@@ -72,8 +74,19 @@ router.post('/projects/:projectId/shells', validateParams(ProjectIdParamsSchema)
     }
 
     const { projectId } = req.params as ProjectIdParams;
-    const { name } = req.body as CreateShellBody;
-    const shell = await req.shellService.create(projectId, name);
+    const { name, type } = req.body as CreateShellBody;
+    let shell = await req.shellService.create(projectId, name, type);
+
+    // Auto-start the shell after creation (if PTY pool is configured)
+    try {
+      shell = await req.shellService.start(shell.id);
+    } catch (startErr) {
+      // If PTY pool is not configured, just return the created shell without starting
+      // The shell will have status 'inactive' until explicitly started
+      if (!(startErr instanceof Error && startErr.message === 'PTY pool not configured')) {
+        throw startErr;
+      }
+    }
     res.status(201).json({ shell });
   } catch (err) {
     if (err instanceof Error && err.message === 'Project not found') {
@@ -139,12 +152,15 @@ router.patch('/shells/:id', validateParams(ShellIdParamsSchema), validateBody(Up
     }
 
     const { id } = req.params as ShellIdParams;
-    const { name } = req.body as UpdateShellBody;
+    const { name, done } = req.body as UpdateShellBody;
 
     // Build updates object with only defined values
-    const updates: { name?: string } = {};
+    const updates: { name?: string; done?: boolean } = {};
     if (name !== undefined) {
       updates.name = name;
+    }
+    if (done !== undefined) {
+      updates.done = done;
     }
 
     const shell = await req.shellService.update(id, updates);

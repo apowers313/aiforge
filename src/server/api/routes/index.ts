@@ -3,6 +3,7 @@
  */
 import { Router } from 'express';
 import { authRouter } from './auth.js';
+import { healthRouter } from './health.js';
 import { projectsRouter, attachProjectService } from './projects.js';
 import { shellsRouter, attachShellService } from './shells.js';
 import { filesystemRouter, attachFilesystemService } from './filesystem.js';
@@ -30,6 +31,7 @@ export function createApiRouter(services: RouteServices): Router {
 
   // Mount routes
   router.use('/auth', authRouter);
+  router.use('/health', healthRouter);
   router.use('/projects', projectsRouter);
   router.use('/', shellsRouter); // Has /projects/:projectId/shells and /shells/:id routes
   router.use('/filesystem', filesystemRouter);
@@ -38,4 +40,5 @@ export function createApiRouter(services: RouteServices): Router {
   return router;
 }
 
-export { authRouter, projectsRouter, shellsRouter, filesystemRouter, workspaceRouter };
+export { authRouter, healthRouter, projectsRouter, shellsRouter, filesystemRouter, workspaceRouter };
+export { setWebSocketReady, isWebSocketReady } from './health.js';

@@ -7,9 +7,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
     "build:client": "vite build",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "npm run dev:server && npm run dev:client",
     "dev:server": "npx servherd start -n aiforge-server-dev -e AIFORGE_PORT={{port}} --port 9050 -e AIFORGE_AUTH_GUID={{aiforge-auth}} -- tsx watch src/server/index.ts",
-    "dev:client": "npx servherd start -n aiforge-client-dev -e HOST={{hostname}} -e AIFORGE_AUTH_GUID={{aiforge-auth}} -- vite --port {{port}} --host {{hostname}}",
+    "dev:client": "npx servherd start -n aiforge-client-dev -e HOST={{hostname}} -e AIFORGE_AUTH_GUID={{aiforge-auth}} 'AIFORGE_SERVER_PORT={{$ \"aiforge-server-dev\" \"port\"}}' -- vite --port {{port}} --host {{hostname}}",
     "dev:ci": "concurrently --kill-others \"CI=true tsx src/server/index.ts\" \"vite --port ${VITE_PORT:-9050}\"",
     "e2e:backend": "servherd start -n e2e-backend -e 'CI=true' -e 'AIFORGE_PORT={{port}}' -e 'AIFORGE_AUTH_GUID=e2e-test-guid' -e 'AIFORGE_DATA_DIR=./tmp/e2e-data' -- tsx src/server/index.ts",
     "e2e:frontend": "servherd start -n e2e-frontend -e 'CI=true' -e 'AIFORGE_SERVER_PORT={{$ \"e2e-backend\" \"port\"}}' -- vite --port {{port}} --host",
@@ -65,6 +65,7 @@
   },
   "dependencies": {
     "@graphty/compact-mantine": "^0.5.0",
+    "@graphty/remote-logger": "^1.2.3",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@mantine/core": "^8.0.1",
     "@mantine/hooks": "^8.0.1",

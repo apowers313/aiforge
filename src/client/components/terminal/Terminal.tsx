@@ -1,9 +1,9 @@
 /**
  * Terminal - Real terminal component using xterm.js
  */
-import { useRef, useEffect, useCallback } from 'react';
-import { Box, Group, Text, Badge, Loader, Center, ActionIcon, Tooltip, Menu } from '@mantine/core';
-import { IconTerminal2, IconPlus, IconMinus, IconPalette, IconCheck } from '@tabler/icons-react';
+import { useRef, useEffect, useCallback, useState } from 'react';
+import { Box, Group, Text, Badge, Loader, Center, ActionIcon, Tooltip, Menu, Alert, Button } from '@mantine/core';
+import { IconTerminal2, IconPlus, IconMinus, IconPalette, IconCheck, IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -21,13 +21,22 @@ interface TerminalProps {
   shellId: string;
 }
 
+// Debug helper to get elapsed time since terminal switch started
+function getElapsed(): string {
+  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
+  if (!start) return '?.??';
+  return (performance.now() - start).toFixed(2);
+}
+
 export function Terminal({ shellId }: TerminalProps): React.ReactElement {
+  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Terminal component render start for shellId: ${shellId}`);
   const shell = useShell(shellId);
   const startShellMutation = useStartShell();
-  const terminalRef = useRef<HTMLDivElement>(null);
+  const [terminalElement, setTerminalElement] = useState<HTMLDivElement | null>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const hasStartedRef = useRef(false);
+  const dataBufferRef = useRef<string[]>([]);
 
   // Track applied values to skip redundant updates
   const appliedFontSizeRef = useRef<number | null>(null);
@@ -61,14 +70,21 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
   // Handle terminal data
   const handleData = useCallback((data: string) => {
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData received ${data.length} bytes`);
     const xterm = xtermRef.current;
-    if (!xterm) return;
+    if (!xterm) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: xterm not ready, buffering`);
+      dataBufferRef.current.push(data);
+      return;
+    }
 
     // Check if terminal is scrolled to bottom before writing
     const buffer = xterm.buffer.active;
     const isAtBottom = buffer.viewportY >= buffer.baseY;
 
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: writing to xterm`);
     xterm.write(data);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: xterm.write complete`);
 
     // Scroll to bottom if we were at the bottom before the write
     if (isAtBottom) {
@@ -84,7 +100,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
   }, []);
 
   // Connect to terminal WebSocket
-  const { isConnected, write, resize } = useTerminal(shellId, {
+  const { isConnected, connectionError, write, resize, reconnect } = useTerminal(shellId, {
     onData: handleData,
     onStatus: handleStatus,
   });
@@ -97,12 +113,14 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     resizeRef.current = resize;
   }, [write, resize]);
 
-  // Initialize xterm - only depends on terminalRef, not on callbacks
+  // Initialize xterm - depends on terminalElement state (callback ref pattern)
   useEffect(() => {
-    if (!terminalRef.current || xtermRef.current) {
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm init effect running, terminalElement=${!!terminalElement}, xtermRef.current=${!!xtermRef.current}`);
+    if (!terminalElement || xtermRef.current) {
       return;
     }
 
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Creating xterm instance`);
     const themeColors = getTerminalThemeColors(terminalTheme);
     const xterm = new XTerm({
       cursorBlink: true,
@@ -119,8 +137,11 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     xterm.loadAddon(fitAddon);
     xterm.loadAddon(webLinksAddon);
 
-    xterm.open(terminalRef.current);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm.open() starting`);
+    xterm.open(terminalElement);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm.open() complete, calling fitAddon.fit()`);
     fitAddon.fit();
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - fitAddon.fit() complete`);
 
     // Handle terminal input - use ref to avoid stale closure
     xterm.onData((data) => {
@@ -135,6 +156,17 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
 
+    // Flush any buffered data that arrived before xterm was ready
+    if (dataBufferRef.current.length > 0) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Flushing ${dataBufferRef.current.length} buffered data chunks`);
+      for (const data of dataBufferRef.current) {
+        xterm.write(data);
+      }
+      dataBufferRef.current = [];
+      xterm.scrollToBottom();
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Buffer flush complete`);
+    }
+
     // Track initial applied values to skip redundant updates
     appliedFontSizeRef.current = terminalFontSize;
     appliedThemeRef.current = terminalTheme;
@@ -148,8 +180,9 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
       fitAddonRef.current = null;
       appliedFontSizeRef.current = null;
       appliedThemeRef.current = null;
+      dataBufferRef.current = [];
     };
-  }, []);
+  }, [terminalElement]);
 
   // Handle window resize with debouncing
   useEffect(() => {
@@ -176,8 +209,8 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
     // Also fit when container size might have changed
     const resizeObserver = new ResizeObserver(handleResize);
-    if (terminalRef.current) {
-      resizeObserver.observe(terminalRef.current);
+    if (terminalElement) {
+      resizeObserver.observe(terminalElement);
     }
 
     return (): void => {
@@ -187,7 +220,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [terminalElement]);
 
   // Update font size when it changes in the store
   useEffect(() => {
@@ -254,6 +287,31 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     return (
       <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
         <Text c="red">Error: {startShellMutation.error.message}</Text>
+      </Center>
+    );
+  }
+
+  // Connection error with retry option
+  if (connectionError?.type === 'server_unreachable') {
+    return (
+      <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
+        <Alert
+          icon={<IconAlertTriangle size={16} />}
+          title="Connection Error"
+          color="red"
+          variant="filled"
+          style={{ maxWidth: 400 }}
+        >
+          <Text size="sm" mb="md">{connectionError.message}</Text>
+          <Button
+            leftSection={<IconRefresh size={14} />}
+            size="sm"
+            variant="white"
+            onClick={reconnect}
+          >
+            Retry Connection
+          </Button>
+        </Alert>
       </Center>
     );
   }
@@ -366,7 +424,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
       {/* Terminal Content */}
       <Box
-        ref={terminalRef}
+        ref={setTerminalElement}
         onClick={handleClick}
         style={{
           flex: 1,

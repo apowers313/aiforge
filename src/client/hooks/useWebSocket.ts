@@ -3,6 +3,14 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ReconnectingWebSocket, type ReconnectingWebSocketOptions } from '@client/services/websocket.js';
+import { waitForServerHealth } from '@client/services/api.js';
+
+// Debug helper to get elapsed time since terminal switch started
+function getElapsed(): string {
+  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
+  if (!start) return '?.??';
+  return (performance.now() - start).toFixed(2);
+}
 
 /**
  * WebSocket connection status
@@ -18,6 +26,13 @@ export interface UseWebSocketOptions {
    * @default true
    */
   autoConnect?: boolean;
+
+  /**
+   * Wait for server health check before connecting
+   * This prevents connection attempts while server is starting up
+   * @default false
+   */
+  waitForHealth?: boolean;
 
   /**
    * Callback when message is received
@@ -62,6 +77,7 @@ export interface UseWebSocketReturn {
 export function useWebSocket(url: string, options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const {
     autoConnect = true,
+    waitForHealth = false,
     onMessage,
     onOpen,
     onClose,
@@ -71,6 +87,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
 
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
   const wsRef = useRef<ReconnectingWebSocket | null>(null);
+  const healthCheckInProgressRef = useRef(false);
 
   // Store callbacks in refs to avoid reconnection on callback changes
   const onMessageRef = useRef(onMessage);
@@ -86,10 +103,60 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
   }, [onMessage, onOpen, onClose, onError]);
 
   const connect = useCallback(() => {
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() called, wsRef.current=${!!wsRef.current}`);
     if (wsRef.current) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() - already connected, returning`);
       return;
     }
 
+    // If health check is enabled and not already in progress
+    if (waitForHealth && !healthCheckInProgressRef.current) {
+      healthCheckInProgressRef.current = true;
+      setStatus('connecting');
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Starting health check (waitForHealth=true)`);
+
+      waitForServerHealth({ maxAttempts: 600, delayMs: 1000 })
+        .then(() => {
+          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Health check PASSED`);
+          healthCheckInProgressRef.current = false;
+          // Now actually connect
+          if (!wsRef.current) {
+            console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Creating ReconnectingWebSocket`);
+            wsRef.current = new ReconnectingWebSocket(url, {
+              ...reconnectOptions,
+              onMessage: (data): void => {
+                onMessageRef.current?.(data);
+              },
+              onOpen: (): void => {
+                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket OPEN`);
+                setStatus('connected');
+                onOpenRef.current?.();
+              },
+              onClose: (): void => {
+                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket CLOSED`);
+                setStatus('disconnected');
+                onCloseRef.current?.();
+              },
+              onError: (event): void => {
+                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket ERROR`);
+                setStatus('error');
+                onErrorRef.current?.(event);
+              },
+            });
+            console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Calling wsRef.current.connect()`);
+            wsRef.current.connect();
+          }
+        })
+        .catch(() => {
+          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Health check FAILED`);
+          healthCheckInProgressRef.current = false;
+          setStatus('error');
+          onErrorRef.current?.(new Event('health_check_failed'));
+        });
+      return;
+    }
+
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Connecting without health check`);
     setStatus('connecting');
 
     wsRef.current = new ReconnectingWebSocket(url, {
@@ -112,7 +179,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
     });
 
     wsRef.current.connect();
-  }, [url, reconnectOptions]);
+  }, [url, reconnectOptions, waitForHealth]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
@@ -133,6 +200,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
     }
 
     return (): void => {
+      // Reset health check flag on cleanup to handle React StrictMode double-mount
+      healthCheckInProgressRef.current = false;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

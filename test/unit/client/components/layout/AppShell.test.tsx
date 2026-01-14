@@ -7,6 +7,18 @@ import { renderWithProviders, createTestQueryClient } from '../../../../utils/te
 import type { QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@client/hooks/queryKeys';
 
+// Mock useTerminal to prevent WebSocket connection attempts in tests
+vi.mock('@client/hooks/useTerminal', () => ({
+  useTerminal: vi.fn(() => ({
+    isConnected: true,
+    connectionError: null,
+    write: vi.fn(),
+    resize: vi.fn(),
+    disconnect: vi.fn(),
+    reconnect: vi.fn(),
+  })),
+}));
+
 // Mock fetch globally
 const mockFetch = vi.fn();
 global.fetch = mockFetch;

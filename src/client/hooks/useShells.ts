@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMut
 import { api } from '@client/services/api';
 import { useUIStore } from '@client/stores/uiStore';
 import { queryKeys } from './queryKeys';
-import type { Shell } from '@shared/types';
+import type { Shell, ShellType } from '@shared/types';
 
 /**
  * Hook to fetch shells for a specific project
@@ -46,12 +46,12 @@ export function useAllShells(projectIds: string[]): UseQueryResult<Shell[]> {
 /**
  * Hook to create a new shell
  */
-export function useCreateShell(): UseMutationResult<{ shell: Shell }, Error, { projectId: string; name?: string }> {
+export function useCreateShell(): UseMutationResult<{ shell: Shell }, Error, { projectId: string; name?: string; type?: ShellType }> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ projectId, name }: { projectId: string; name?: string }) =>
-      api.createShell(projectId, name),
+    mutationFn: ({ projectId, name, type }: { projectId: string; name?: string; type?: ShellType }) =>
+      api.createShell(projectId, name, type),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(data.shell.projectId),
@@ -113,13 +113,13 @@ export function useDeleteShell(): UseMutationResult<{ shellId: string; projectId
 }
 
 /**
- * Hook to update a shell (e.g., rename)
+ * Hook to update a shell (e.g., rename, mark as done)
  */
-export function useUpdateShell(): UseMutationResult<{ shell: Shell }, Error, { shellId: string; updates: { name?: string } }> {
+export function useUpdateShell(): UseMutationResult<{ shell: Shell }, Error, { shellId: string; updates: { name?: string; done?: boolean } }> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ shellId, updates }: { shellId: string; updates: { name?: string } }) =>
+    mutationFn: ({ shellId, updates }: { shellId: string; updates: { name?: string; done?: boolean } }) =>
       api.updateShell(shellId, updates),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({

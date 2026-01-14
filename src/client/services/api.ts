@@ -1,7 +1,7 @@
 /**
  * REST API client for AIForge backend
  */
-import type { Project, Shell, WorkspaceState } from '@shared/types';
+import type { Project, Shell, ShellType, WorkspaceState } from '@shared/types';
 import { ApiError } from './errors';
 
 // Response types
@@ -49,6 +49,19 @@ export interface ValidateResponse {
 
 // API base URL - empty means same origin
 const API_BASE = '/api';
+
+/**
+ * Server health response
+ */
+export interface HealthResponse {
+  status: string;
+  timestamp: string;
+  uptime: number;
+  services: {
+    websocket: boolean;
+    api: boolean;
+  };
+}
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -114,6 +127,54 @@ async function request<T>(
   return handleResponse<T>(response);
 }
 
+// Health API
+export async function checkServerHealth(): Promise<HealthResponse> {
+  return request<HealthResponse>('/health');
+}
+
+// Debug helper to get elapsed time since terminal switch started
+function getElapsed(): string {
+  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
+  if (!start) return '?.??';
+  return (performance.now() - start).toFixed(2);
+}
+
+/**
+ * Wait for the server to be healthy by polling the health endpoint.
+ * Returns when server is healthy or throws after max attempts.
+ */
+export async function waitForServerHealth(options: {
+  maxAttempts?: number;
+  delayMs?: number;
+  onAttempt?: (attempt: number) => void;
+} = {}): Promise<HealthResponse> {
+  const { maxAttempts = 10, delayMs = 1000, onAttempt } = options;
+  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth START (maxAttempts=${maxAttempts}, delayMs=${delayMs})`);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt}/${maxAttempts}`);
+    onAttempt?.(attempt);
+    try {
+      const health = await checkServerHealth();
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt} response: status=${health.status}, websocket=${health.services.websocket}`);
+      if (health.status === 'ok' && health.services.websocket) {
+        console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth SUCCESS after ${attempt} attempt(s)`);
+        return health;
+      }
+    } catch (err) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${attempt} FAILED:`, err);
+      // Server not ready yet, will retry
+    }
+
+    if (attempt < maxAttempts) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth waiting ${delayMs}ms before retry...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new Error(`Server not healthy after ${String(maxAttempts)} attempts`);
+}
+
 // Auth API
 export async function login(guid: string): Promise<AuthSuccessResponse> {
   return request<AuthSuccessResponse>('/auth/login', {
@@ -176,10 +237,11 @@ export async function getShell(id: string): Promise<ShellResponse> {
 export async function createShell(
   projectId: string,
   name?: string,
+  type: ShellType = 'bash',
 ): Promise<ShellResponse> {
   return request<ShellResponse>(`/projects/${projectId}/shells`, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, type }),
   });
 }
 
@@ -191,7 +253,7 @@ export async function deleteShell(id: string): Promise<undefined> {
 
 export async function updateShell(
   id: string,
-  updates: { name?: string },
+  updates: { name?: string; done?: boolean },
 ): Promise<ShellResponse> {
   return request<ShellResponse>(`/shells/${id}`, {
     method: 'PATCH',
@@ -263,6 +325,8 @@ export async function updateWorkspaceState(
 
 // Export namespace for convenience
 export const api = {
+  checkServerHealth,
+  waitForServerHealth,
   login,
   logout,
   checkAuthStatus,

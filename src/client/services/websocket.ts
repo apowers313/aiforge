@@ -2,6 +2,13 @@
  * ReconnectingWebSocket - WebSocket client with automatic reconnection
  */
 
+// Debug helper to get elapsed time since terminal switch started
+function getElapsed(): string {
+  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
+  if (!start) return '?.??';
+  return (performance.now() - start).toFixed(2);
+}
+
 /**
  * Options for ReconnectingWebSocket
  */
@@ -79,12 +86,16 @@ export class ReconnectingWebSocket {
    */
   connect(): void {
     if (this._closed) {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket.connect() - already closed, returning`);
       return;
     }
 
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: Creating new WebSocket to ${this._url}`);
     this._ws = new WebSocket(this._url);
+    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: WebSocket created, readyState=${this._ws.readyState}`);
 
     this._ws.onopen = (): void => {
+      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: onopen fired!`);
       this._connected = true;
       this._reconnectAttempts = 0;
       this._lastReconnectDelay = 0;

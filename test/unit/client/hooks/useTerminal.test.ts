@@ -6,6 +6,15 @@ import { renderHook, act } from '@testing-library/react';
 import { useTerminal } from '@client/hooks/useTerminal.js';
 import { createMockWebSocketConstructor } from '@test/mocks/websocket.js';
 
+// Mock the health check API to avoid blocking WebSocket connections
+vi.mock('@client/services/api.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@client/services/api.js')>();
+  return {
+    ...actual,
+    waitForServerHealth: vi.fn().mockResolvedValue({ status: 'ok', services: { websocket: true, api: true } }),
+  };
+});
+
 describe('useTerminal', () => {
   let MockWebSocket: ReturnType<typeof createMockWebSocketConstructor>;
 
@@ -20,8 +29,13 @@ describe('useTerminal', () => {
     vi.useRealTimers();
   });
 
-  it('attaches to shell on mount', () => {
+  it('attaches to shell on mount', async () => {
     const { result } = renderHook(() => useTerminal('shell-1'));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Wait for connection
     act(() => {
@@ -37,8 +51,13 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('forwards terminal input to WebSocket', () => {
+  it('forwards terminal input to WebSocket', async () => {
     const { result } = renderHook(() => useTerminal('shell-1'));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Wait for connection
     act(() => {
@@ -59,9 +78,14 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('calls onData with output', () => {
+  it('calls onData with output', async () => {
     const onData = vi.fn();
     const { result } = renderHook(() => useTerminal('shell-1', { onData }));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -82,9 +106,14 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('ignores output for different shell', () => {
+  it('ignores output for different shell', async () => {
     const onData = vi.fn();
     const { result } = renderHook(() => useTerminal('shell-1', { onData }));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -105,8 +134,13 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('sends resize events', () => {
+  it('sends resize events', async () => {
     const { result } = renderHook(() => useTerminal('shell-1'));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -128,8 +162,13 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('detaches on unmount', () => {
+  it('detaches on unmount', async () => {
     const { unmount } = renderHook(() => useTerminal('shell-1'));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -167,11 +206,16 @@ describe('useTerminal', () => {
     expect(detachHandled).toBe(true);
   });
 
-  it('reports connection status', () => {
+  it('reports connection status', async () => {
     const { result } = renderHook(() => useTerminal('shell-1'));
 
     // Initially not connected
     expect(result.current.isConnected).toBe(false);
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -183,9 +227,14 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('calls onStatus when shell status changes', () => {
+  it('calls onStatus when shell status changes', async () => {
     const onStatus = vi.fn();
     const { result } = renderHook(() => useTerminal('shell-1', { onStatus }));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Connect
     act(() => {
@@ -207,8 +256,13 @@ describe('useTerminal', () => {
     result.current.disconnect();
   });
 
-  it('reconnects to shell after connection restored', () => {
+  it('reconnects to shell after connection restored', async () => {
     const { result } = renderHook(() => useTerminal('shell-1'));
+
+    // Flush health check promise
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
 
     // Initial connection
     act(() => {
@@ -226,8 +280,8 @@ describe('useTerminal', () => {
     });
 
     // Advance timer to trigger reconnect
-    act(() => {
-      vi.advanceTimersByTime(2000);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
     });
 
     // New connection opens

@@ -6,7 +6,7 @@
  */
 import { test as base } from '@playwright/test';
 import { execSync } from 'node:child_process';
-import { rmSync, existsSync, mkdirSync } from 'node:fs';
+import { rmSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 const TEST_GUID = 'e2e-test-guid';
@@ -84,6 +84,39 @@ function resetDataDirectory(): void {
 }
 
 /**
+ * Clean up orphaned PTY daemon sockets and processes.
+ * This ensures test isolation by removing any persistent daemons from previous runs.
+ */
+function cleanupDaemonSockets(): void {
+  const tmpDir = '/tmp';
+  const socketPattern = /^ai-ide-pty-.*\.sock$/;
+
+  try {
+    const files = readdirSync(tmpDir);
+    for (const file of files) {
+      if (socketPattern.test(file)) {
+        const socketPath = join(tmpDir, file);
+        try {
+          unlinkSync(socketPath);
+        } catch {
+          // Socket may be in use or already removed
+        }
+      }
+    }
+  } catch {
+    // /tmp not readable - unlikely but handle gracefully
+  }
+
+  // Kill any orphaned daemon processes
+  // The daemons are spawned with 'pty-daemon' in the command
+  try {
+    execSync('pkill -f "pty-daemon" 2>/dev/null || true', { encoding: 'utf-8' });
+  } catch {
+    // No matching processes or pkill failed
+  }
+}
+
+/**
  * Extended test with server fixture that provides isolated environment per worker
  */
 export const test = base.extend<TestFixtures, WorkerFixtures>({
@@ -93,6 +126,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     // Stop servers first to ensure clean state
     try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
     try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
+
+    // Clean up any orphaned daemon processes and sockets from previous runs
+    cleanupDaemonSockets();
 
     // Reset data directory while servers are stopped
     resetDataDirectory();

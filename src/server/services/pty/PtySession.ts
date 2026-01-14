@@ -109,6 +109,8 @@ export class PtySession extends EventEmitter {
       this._scrollbackStore.append(this._id, 'input', data);
     }
     this._pty.write(data);
+    // Emit input event for activity tracking
+    this.emit('input', data);
   }
 
   /**
