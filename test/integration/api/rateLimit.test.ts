@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import { createTestServer, type TestServer } from '../../helpers/server.js';
+import { loginRateLimiter } from '@server/api/middleware/rateLimit.js';
 
 describe('Rate Limiting', () => {
   let server: TestServer;
@@ -17,9 +18,8 @@ describe('Rate Limiting', () => {
   });
 
   beforeEach(() => {
-    // Reset rate limiter between tests
-    // Note: In a real implementation, we'd want a way to reset the rate limiter
-    // For now, we rely on the window expiring between test runs
+    // Reset rate limiter between tests to prevent test interference
+    loginRateLimiter.reset();
   });
 
   it('allows requests under rate limit', async () => {

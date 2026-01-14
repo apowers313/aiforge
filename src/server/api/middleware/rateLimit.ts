@@ -92,20 +92,87 @@ function getClientKey(req: Request): string {
 }
 
 /**
- * No-op middleware that just calls next()
- * Used to bypass rate limiting in test environments
+ * Creates a rate limiter with a reset function for testing
  */
-const noopMiddleware: RequestHandler = (_req, _res, next) => { next(); };
+export interface ResettableRateLimiter extends RequestHandler {
+  reset: () => void;
+}
+
+/**
+ * Create a rate limiter that can be reset (useful for testing)
+ */
+export function createResettableRateLimiter(options: RateLimitOptions): ResettableRateLimiter {
+  const {
+    windowMs,
+    maxRequests,
+    message = 'Too many requests, please try again later',
+  } = options;
+
+  // Store rate limit data per IP
+  const store = new Map<string, RateLimitEntry>();
+
+  // Cleanup old entries periodically
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of store.entries()) {
+      if (entry.resetTime <= now) {
+        store.delete(key);
+      }
+    }
+  }, windowMs);
+
+  // Don't prevent process from exiting
+  cleanupInterval.unref();
+
+  const middleware = ((req: Request, res: Response, next: NextFunction): void => {
+    const key = getClientKey(req);
+    const now = Date.now();
+
+    let entry = store.get(key);
+
+    // If no entry or window expired, create new entry
+    if (!entry || entry.resetTime <= now) {
+      entry = {
+        count: 0,
+        resetTime: now + windowMs,
+      };
+      store.set(key, entry);
+    }
+
+    // Increment request count
+    entry.count++;
+
+    // Set rate limit headers
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - entry.count)));
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(entry.resetTime / 1000)));
+
+    // Check if over limit
+    if (entry.count > maxRequests) {
+      const retryAfter = Math.ceil((entry.resetTime - now) / 1000);
+      res.setHeader('Retry-After', String(retryAfter));
+
+      next(ApiError.tooManyRequests(message));
+      return;
+    }
+
+    next();
+  }) as ResettableRateLimiter;
+
+  // Add reset function for testing
+  middleware.reset = (): void => {
+    store.clear();
+  };
+
+  return middleware;
+}
 
 /**
  * Pre-configured rate limiter for login endpoint
  * 10 attempts per 15 minutes
- * Disabled in CI/test environments to avoid test flakiness
  */
-export const loginRateLimiter = process.env.CI
-  ? noopMiddleware
-  : createRateLimiter({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    maxRequests: 10,
-    message: 'Too many login attempts, please try again later',
-  });
+export const loginRateLimiter = createResettableRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  maxRequests: 10,
+  message: 'Too many login attempts, please try again later',
+});
