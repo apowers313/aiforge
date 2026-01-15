@@ -17,14 +17,16 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Each worker gets its own isolated server, so parallel is safe */
-  workers: process.env.CI ? 2 : 1,
+  /* Use single worker in CI to avoid race conditions with shared server names */
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: process.env.CI ? 'github' : 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:9060',
+    /* In CI, use fixed port 9061 (frontend via webServer config) */
+    /* Locally, defer to fixture which uses servherd dynamic ports */
+    baseURL: process.env.CI ? 'http://localhost:9061' : (process.env.E2E_BASE_URL ?? 'http://localhost:9060'),
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -41,8 +43,24 @@ export default defineConfig({
     },
   ],
 
-  /* Server is managed per-test by fixtures.ts for complete isolation */
-  /* Each test file gets its own server instance and data directory */
+  /* Server configuration for CI - uses Playwright's built-in webServer instead of servherd */
+  /* This avoids pm2 daemon issues in CI environments */
+  ...(process.env.CI ? {
+    webServer: [
+      {
+        command: 'E2E_TEST=true AIFORGE_PORT=9060 AIFORGE_AUTH_GUID=e2e-test-guid AIFORGE_DATA_DIR=./tmp/e2e-data tsx src/server/index.ts',
+        port: 9060,
+        reuseExistingServer: false,
+        timeout: 120000,
+      },
+      {
+        command: 'AIFORGE_SERVER_PORT=9060 vite --port 9061 --host',
+        port: 9061,
+        reuseExistingServer: false,
+        timeout: 120000,
+      },
+    ],
+  } : {}),
 
   /* Global timeout for tests */
   timeout: 30000,

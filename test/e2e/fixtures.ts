@@ -29,10 +29,15 @@ interface ServherdInfo {
 }
 
 /**
- * Run a command and return stdout
+ * Run a command and return stdout with a timeout
  */
-function run(cmd: string): string {
-  return execSync(cmd, { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+function run(cmd: string, timeoutMs = 120000): string {
+  return execSync(cmd, {
+    cwd: process.cwd(),
+    encoding: 'utf-8',
+    timeout: timeoutMs,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
 }
 
 /**
@@ -120,46 +125,65 @@ function cleanupDaemonSockets(): void {
  * Extended test with server fixture that provides isolated environment per worker
  */
 export const test = base.extend<TestFixtures, WorkerFixtures>({
-  // Server fixture - manages servherd servers per worker (test file)
+  // Server fixture - manages servers per worker (test file)
+  // In CI, Playwright's webServer config handles server startup
+  // Locally, we use servherd for dynamic port allocation
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type, no-empty-pattern
   serverBaseURL: [async ({}: {}, use): Promise<void> => {
-    // Stop servers first to ensure clean state
-    try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
-    try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
+    const isCI = process.env.CI === 'true';
 
-    // Clean up any orphaned daemon processes and sockets from previous runs
-    cleanupDaemonSockets();
+    if (isCI) {
+      // In CI, Playwright's webServer config starts the servers on fixed ports
+      // We just need to clean up the data directory and provide the URL
+      resetDataDirectory();
+      cleanupDaemonSockets();
 
-    // Reset data directory while servers are stopped
-    resetDataDirectory();
+      const baseURL = 'http://localhost:9061';
+      await waitForServer(baseURL, 120000);
+      await use(baseURL);
 
-    // Start fresh servers
-    run('npm run e2e:backend');
-    run('npm run e2e:frontend');
+      // Cleanup daemon sockets
+      cleanupDaemonSockets();
+    } else {
+      // Local development - use servherd for dynamic port allocation
+      // Stop servers first to ensure clean state
+      try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
+      try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
 
-    // Give servers a moment to fully initialize
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Clean up any orphaned daemon processes and sockets from previous runs
+      cleanupDaemonSockets();
 
-    // Get the frontend URL from servherd
-    const frontendInfo = getServerInfo('e2e-frontend');
-    if (!frontendInfo) {
-      throw new Error('Failed to get e2e-frontend server info');
+      // Reset data directory while servers are stopped
+      resetDataDirectory();
+
+      // Start fresh servers
+      run('npm run e2e:backend');
+      run('npm run e2e:frontend');
+
+      // Give servers a moment to fully initialize
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Get the frontend URL from servherd
+      const frontendInfo = getServerInfo('e2e-frontend');
+      if (!frontendInfo) {
+        throw new Error('Failed to get e2e-frontend server info');
+      }
+
+      const baseURL = `http://localhost:${String(frontendInfo.port)}`;
+
+      // Wait for servers to be ready
+      await waitForServer(baseURL);
+
+      // Provide the baseURL to tests
+      await use(baseURL);
+
+      // Cleanup: Stop servers after all tests in this worker complete
+      try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
+      try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
+
+      // Clean up any lingering daemon processes
+      cleanupDaemonSockets();
     }
-
-    const baseURL = `http://localhost:${String(frontendInfo.port)}`;
-
-    // Wait for servers to be ready
-    await waitForServer(baseURL);
-
-    // Provide the baseURL to tests
-    await use(baseURL);
-
-    // Cleanup: Stop servers after all tests in this worker complete
-    try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
-    try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
-
-    // Clean up any lingering daemon processes
-    cleanupDaemonSockets();
   }, { scope: 'worker' }],
 
   // Override baseURL to use the server's URL

@@ -17,8 +17,8 @@ const LoginSchema = z.object({
 
 type LoginBody = z.infer<typeof LoginSchema>;
 
-// Skip rate limiting in CI environment for E2E tests
-const rateLimitMiddleware = process.env.CI === 'true'
+// Skip rate limiting in E2E tests (uses separate flag from CI to not affect unit tests)
+const rateLimitMiddleware = process.env.E2E_TEST === 'true'
   ? (_req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction): void => { next(); }
   : loginRateLimiter;
 
