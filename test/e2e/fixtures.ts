@@ -153,6 +153,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
     // Provide the baseURL to tests
     await use(baseURL);
+
+    // Cleanup: Stop servers after all tests in this worker complete
+    try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
+    try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
+
+    // Clean up any lingering daemon processes
+    cleanupDaemonSockets();
   }, { scope: 'worker' }],
 
   // Override baseURL to use the server's URL

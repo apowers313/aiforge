@@ -17,11 +17,16 @@ const LoginSchema = z.object({
 
 type LoginBody = z.infer<typeof LoginSchema>;
 
+// Skip rate limiting in CI environment for E2E tests
+const rateLimitMiddleware = process.env.CI === 'true'
+  ? (_req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction): void => { next(); }
+  : loginRateLimiter;
+
 /**
  * POST /api/auth/login
  * Login with GUID
  */
-router.post('/login', loginRateLimiter, validateBody(LoginSchema), async (req, res, next) => {
+router.post('/login', rateLimitMiddleware, validateBody(LoginSchema), async (req, res, next) => {
   try {
     const { guid } = req.body as LoginBody;
 
