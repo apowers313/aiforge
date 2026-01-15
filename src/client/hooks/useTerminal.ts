@@ -4,13 +4,9 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useWebSocket } from './useWebSocket.js';
 import { useUIStore } from '@client/stores/uiStore';
+import { log } from '@client/services/logger';
 
-// Debug helper to get elapsed time since terminal switch started
-function getElapsed(): string {
-  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
-  if (!start) return '?.??';
-  return (performance.now() - start).toFixed(2);
-}
+const termLog = log.terminal;
 
 /**
  * Terminal message from server
@@ -102,12 +98,12 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
       return;
     }
 
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal handleMessage: type=${msg.type}, shellId=${msg.shellId ?? ''}, dataLen=${String(msg.data?.length ?? 0)}, isScrollback=${String(msg.isScrollback ?? false)}`);
+    termLog.debug({ type: msg.type, shellId: msg.shellId, dataLen: msg.data?.length ?? 0, isScrollback: msg.isScrollback ?? false }, 'Terminal message received');
 
     switch (msg.type) {
       case 'output':
         if (msg.data) {
-          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Calling onData callback with ${String(msg.data.length)} bytes`);
+          termLog.debug({ bytes: msg.data.length }, 'Calling onData callback');
           onDataRef.current?.(msg.data);
           // Record activity for AI shell indicator (only for live output, not scrollback replay)
           if (!msg.isScrollback) {
@@ -117,11 +113,13 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
         break;
       case 'status':
         if (msg.status) {
+          termLog.info({ shellId, status: msg.status, exitCode: msg.exitCode }, 'Shell status changed');
           onStatusRef.current?.(msg.status, msg.exitCode);
         }
         break;
       case 'error':
         // Handle server-side errors
+        termLog.error({ shellId, error: msg.data }, 'Server-side terminal error');
         setConnectionError({
           type: 'websocket',
           message: msg.data ?? 'Unknown error',
@@ -168,23 +166,24 @@ export function useTerminal(shellId: string, options: UseTerminalOptions = {}): 
   // Attach to shell when WebSocket is connected
   // Using a separate effect ensures attach is sent on remount (e.g., React StrictMode)
   useEffect(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal attach effect: ws.isConnected=${String(ws.isConnected)}, shellId=${shellId}`);
+    termLog.debug({ isConnected: ws.isConnected, shellId }, 'Attach effect triggered');
     // Reset attached state on each effect run (handles StrictMode remount)
     attachedRef.current = false;
 
     if (ws.isConnected) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: Sending ATTACH message for shellId=${shellId}`);
+      termLog.info({ shellId }, 'Sending ATTACH message');
       ws.send({
         type: 'attach',
         shellId,
       });
       attachedRef.current = true;
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useTerminal: ATTACH message sent`);
+      termLog.debug({ shellId }, 'ATTACH message sent');
     }
 
     // Cleanup: detach and reset state
     return (): void => {
       if (attachedRef.current) {
+        termLog.info({ shellId }, 'Sending DETACH message');
         ws.send({
           type: 'detach',
           shellId,

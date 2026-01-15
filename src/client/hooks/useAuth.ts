@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from '@tanstack/react-query';
 import { api } from '@client/services/api';
 import { queryKeys } from './queryKeys';
+import { log } from '@client/services/logger';
+
+const authLog = log.auth;
 
 interface AuthStatus {
   authenticated: boolean;
@@ -29,11 +32,16 @@ export function useLogin(): UseMutationResult<void, Error, string> {
 
   return useMutation({
     mutationFn: async (guid: string) => {
+      authLog.info('Login attempt started');
       await api.login(guid);
     },
     onSuccess: () => {
+      authLog.info('Login successful');
       // Update auth status in cache
       queryClient.setQueryData(queryKeys.auth.status, { authenticated: true });
+    },
+    onError: (error) => {
+      authLog.error({ error: error.message }, 'Login failed');
     },
   });
 }
@@ -46,6 +54,7 @@ export function useLogout(): UseMutationResult<void, Error, void> {
 
   return useMutation({
     mutationFn: async () => {
+      authLog.info('Logout initiated');
       try {
         await api.logout();
       } catch {
@@ -53,6 +62,7 @@ export function useLogout(): UseMutationResult<void, Error, void> {
       }
     },
     onSuccess: () => {
+      authLog.info('Logout completed, clearing client state');
       // Update auth status in cache
       queryClient.setQueryData(queryKeys.auth.status, { authenticated: false });
       // Clear all queries on logout

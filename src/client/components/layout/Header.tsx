@@ -2,12 +2,16 @@ import { Group, Title, ActionIcon, Box, Menu } from '@mantine/core';
 import { IconMenu2, IconUser, IconLogout } from '@tabler/icons-react';
 import { useUIStore } from '@client/stores/uiStore';
 import { useLogout } from '@client/hooks/useAuth';
+import { log } from '@client/services/logger';
+
+const authLog = log.auth;
 
 export function Header(): React.ReactElement {
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const logoutMutation = useLogout();
 
   const handleLogout = (): void => {
+    authLog.info('User logout requested');
     logoutMutation.mutate();
   };
 

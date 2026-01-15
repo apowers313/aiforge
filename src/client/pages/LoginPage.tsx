@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Container, Paper, Title, Text, TextInput, Button, Stack, Alert, Center, Box } from '@mantine/core';
 import { IconAlertCircle, IconKey } from '@tabler/icons-react';
 import { useAuthStatus, useLogin } from '@client/hooks/useAuth';
+import { log } from '@client/services/logger';
+
+const authLog = log.auth;
 
 export function LoginPage(): React.ReactElement {
   const [guid, setGuid] = useState('');
@@ -17,12 +20,14 @@ export function LoginPage(): React.ReactElement {
 
   useEffect(() => {
     if (authStatus?.authenticated) {
+      authLog.info('Already authenticated, redirecting to home');
       goToHome();
     }
   }, [authStatus?.authenticated, goToHome]);
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
+    authLog.info('Login form submitted');
     loginMutation.mutate(guid);
   };
 

@@ -11,7 +11,10 @@ import { useShell, useStartShell } from '@client/hooks/useShells';
 import { useTerminal } from '@client/hooks/useTerminal';
 import { useUIStore } from '@client/stores/uiStore';
 import { TERMINAL_THEMES, getTerminalThemeColors } from '@shared/terminalThemes';
+import { log } from '@client/services/logger';
 import '@xterm/xterm/css/xterm.css';
+
+const termLog = log.terminal;
 
 const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
@@ -29,6 +32,7 @@ function getElapsed(): string {
 }
 
 export function Terminal({ shellId }: TerminalProps): React.ReactElement {
+  termLog.debug({ shellId }, 'Terminal component render');
   console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Terminal component render start for shellId: ${shellId}`);
   const shell = useShell(shellId);
   const startShellMutation = useStartShell();
@@ -64,6 +68,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
       return;
     }
 
+    termLog.info({ shellId, shellName: shell.name }, 'Starting shell PTY');
     hasStartedRef.current = true;
     startShellMutation.mutate(shellId);
   }, [shell, shellId, startShellMutation]);
@@ -94,10 +99,11 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
 
   // Handle shell status changes
   const handleStatus = useCallback((status: string, exitCode?: number) => {
+    termLog.info({ shellId, status, exitCode }, 'Shell status changed');
     if (status === 'exited') {
       xtermRef.current?.write(`\r\n\x1b[33m[Process exited with code ${String(exitCode ?? 'unknown')}]\x1b[0m\r\n`);
     }
-  }, []);
+  }, [shellId]);
 
   // Connect to terminal WebSocket
   const { isConnected, connectionError, write, resize, reconnect } = useTerminal(shellId, {
@@ -120,6 +126,7 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
       return;
     }
 
+    termLog.info({ shellId, fontSize: terminalFontSize, theme: terminalTheme }, 'Initializing xterm');
     console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Creating xterm instance`);
     const themeColors = getTerminalThemeColors(terminalTheme);
     const xterm = new XTerm({
@@ -231,13 +238,14 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     // Skip if font size hasn't actually changed
     if (appliedFontSizeRef.current === terminalFontSize) return;
 
+    termLog.debug({ shellId, fontSize: terminalFontSize }, 'Updating terminal font size');
     appliedFontSizeRef.current = terminalFontSize;
     xterm.options.fontSize = terminalFontSize;
     fitAddon.fit();
 
     // Scroll to bottom to ensure cursor is visible after font size change
     xterm.scrollToBottom();
-  }, [terminalFontSize]);
+  }, [terminalFontSize, shellId]);
 
   // Update theme when it changes in the store
   useEffect(() => {
@@ -247,10 +255,11 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     // Skip if theme hasn't actually changed
     if (appliedThemeRef.current === terminalTheme) return;
 
+    termLog.debug({ shellId, theme: terminalTheme }, 'Updating terminal theme');
     appliedThemeRef.current = terminalTheme;
     const themeColors = getTerminalThemeColors(terminalTheme);
     xterm.options.theme = themeColors;
-  }, [terminalTheme]);
+  }, [terminalTheme, shellId]);
 
   // Focus terminal on click
   const handleClick = useCallback(() => {

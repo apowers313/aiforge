@@ -5,6 +5,9 @@ import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
 import { Alert, Button, Stack, Text, Box, Code } from '@mantine/core';
 import { IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
+import { log } from '@client/services/logger';
+
+const uiLog = log.ui;
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -36,6 +39,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    uiLog.error({ error: error.message, componentStack: errorInfo.componentStack }, 'ErrorBoundary caught error');
     this.setState({ errorInfo });
     this.props.onError?.(error, errorInfo);
 
@@ -46,6 +50,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   handleReset = (): void => {
+    uiLog.info('ErrorBoundary reset requested');
     this.setState({
       hasError: false,
       error: null,
@@ -54,6 +59,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   handleReload = (): void => {
+    uiLog.info('Page reload requested from ErrorBoundary');
     window.location.reload();
   };
 

@@ -1,13 +1,9 @@
 /**
  * ReconnectingWebSocket - WebSocket client with automatic reconnection
  */
+import { log } from './logger';
 
-// Debug helper to get elapsed time since terminal switch started
-function getElapsed(): string {
-  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
-  if (!start) return '?.??';
-  return (performance.now() - start).toFixed(2);
-}
+const wsLog = log.websocket;
 
 /**
  * Options for ReconnectingWebSocket
@@ -86,33 +82,39 @@ export class ReconnectingWebSocket {
    */
   connect(): void {
     if (this._closed) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket.connect() - already closed, returning`);
+      wsLog.debug({ url: this._url }, 'connect() called but already closed, returning');
       return;
     }
 
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: Creating new WebSocket to ${this._url}`);
+    wsLog.info({ url: this._url }, 'Creating new WebSocket connection');
     this._ws = new WebSocket(this._url);
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: WebSocket created, readyState=${String(this._ws.readyState)}`);
+    wsLog.debug({ readyState: this._ws.readyState }, 'WebSocket created');
 
     this._ws.onopen = (): void => {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - ReconnectingWebSocket: onopen fired!`);
+      wsLog.info({ url: this._url }, 'WebSocket connection opened');
       this._connected = true;
       this._reconnectAttempts = 0;
       this._lastReconnectDelay = 0;
 
       // Send queued messages
+      const queueLength = this._messageQueue.length;
+      if (queueLength > 0) {
+        wsLog.debug({ queueLength }, 'Flushing message queue');
+      }
       this._flushQueue();
 
       this._options.onOpen?.();
     };
 
     this._ws.onclose = (event): void => {
+      wsLog.info({ code: event.code, reason: event.reason, wasClean: event.wasClean }, 'WebSocket connection closed');
       this._connected = false;
 
       this._options.onClose?.();
 
       // Don't reconnect if explicitly closed or normal close
       if (this._closed || event.code === 1000) {
+        wsLog.debug('Not reconnecting (explicitly closed or normal close)');
         return;
       }
 
@@ -122,14 +124,17 @@ export class ReconnectingWebSocket {
     this._ws.onmessage = (event): void => {
       try {
         const data = JSON.parse(event.data as string) as unknown;
+        wsLog.debug({ dataType: typeof data }, 'Message received');
         this._options.onMessage?.(data);
       } catch {
         // Handle non-JSON messages
+        wsLog.debug('Non-JSON message received');
         this._options.onMessage?.(event.data);
       }
     };
 
     this._ws.onerror = (event): void => {
+      wsLog.error({ type: event.type }, 'WebSocket error');
       this._options.onError?.(event);
     };
   }
@@ -139,9 +144,11 @@ export class ReconnectingWebSocket {
    */
   send(data: unknown): void {
     if (this._connected && this._ws?.readyState === WebSocket.OPEN) {
+      wsLog.debug({ dataType: typeof data }, 'Sending message');
       this._ws.send(JSON.stringify(data));
     } else {
       // Queue message for later
+      wsLog.debug({ queueLength: this._messageQueue.length + 1 }, 'Queueing message (not connected)');
       this._messageQueue.push(data);
     }
   }
@@ -150,6 +157,7 @@ export class ReconnectingWebSocket {
    * Close the connection and stop reconnecting
    */
   close(): void {
+    wsLog.info('Closing WebSocket connection');
     this._closed = true;
     this._cancelReconnect();
 
@@ -180,10 +188,12 @@ export class ReconnectingWebSocket {
    */
   private _scheduleReconnect(): void {
     if (this._closed) {
+      wsLog.debug('Reconnect skipped (connection closed)');
       return;
     }
 
     if (this._reconnectAttempts >= this._options.maxReconnectAttempts) {
+      wsLog.warn({ maxAttempts: this._options.maxReconnectAttempts }, 'Max reconnect attempts reached');
       this._options.onMaxRetriesReached?.();
       return;
     }
@@ -196,6 +206,8 @@ export class ReconnectingWebSocket {
 
     this._lastReconnectDelay = delay;
     this._reconnectAttempts++;
+
+    wsLog.info({ attempt: this._reconnectAttempts, delayMs: Math.round(delay) }, 'Scheduling reconnect');
 
     this._reconnectTimeout = setTimeout(() => {
       this.connect();

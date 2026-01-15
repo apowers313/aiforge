@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.server.json",
     "build:client": "vite build",
-    "dev": "npm run dev:server && npm run dev:client",
+    "dev": "npm run dev:server && sleep 10 && npm run dev:client",
     "dev:server": "npx servherd start -n aiforge-server-dev -e AIFORGE_PORT={{port}} --port 9050 -e AIFORGE_AUTH_GUID={{aiforge-auth}} -- tsx watch src/server/index.ts",
     "dev:client": "npx servherd start -n aiforge-client-dev -e HOST={{hostname}} -e AIFORGE_AUTH_GUID={{aiforge-auth}} 'AIFORGE_SERVER_PORT={{$ \"aiforge-server-dev\" \"port\"}}' -- vite --port {{port}} --host {{hostname}}",
     "dev:ci": "concurrently --kill-others \"CI=true tsx src/server/index.ts\" \"vite --port ${VITE_PORT:-9050}\"",

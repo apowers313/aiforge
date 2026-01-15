@@ -8,6 +8,9 @@ import { useUIStore } from '@client/stores/uiStore';
 import { api } from '@client/services/api';
 import { queryKeys } from './queryKeys';
 import { useAuthStatus } from './useAuth';
+import { log } from '@client/services/logger';
+
+const workspaceLog = log.workspace;
 
 const DEBOUNCE_MS = 500;
 
@@ -44,7 +47,15 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
       return;
     }
     hasLoadedRef.current = true;
+    workspaceLog.info('Loading workspace state from server');
     const ws = serverState.workspaceState;
+    workspaceLog.debug({
+      sidebarCollapsed: ws.sidebarCollapsed,
+      expandedProjectIds: ws.expandedProjectIds,
+      activeShellId: ws.activeShellId,
+      terminalFontSize: ws.terminalFontSize,
+      terminalTheme: ws.terminalTheme,
+    }, 'Workspace state loaded');
     setWorkspaceState({
       sidebarCollapsed: ws.sidebarCollapsed,
       expandedProjectIds: ws.expandedProjectIds,
@@ -98,6 +109,7 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
 
     // Schedule new save
     debounceRef.current = setTimeout(() => {
+      workspaceLog.debug('Saving workspace state to server');
       lastSavedRef.current = stateStr;
       saveState(currentState);
     }, DEBOUNCE_MS);

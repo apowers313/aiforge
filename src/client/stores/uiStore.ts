@@ -1,6 +1,9 @@
 import { createWithEqualityFn } from 'zustand/traditional';
 import { shallow } from 'zustand/shallow';
 import { DEFAULT_TERMINAL_THEME_ID } from '@shared/terminalThemes';
+import { log } from '@client/services/logger';
+
+const stateLog = log.state;
 
 interface WorkspaceStateUpdate {
   sidebarCollapsed?: boolean;
@@ -64,18 +67,25 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
   ...initialState,
 
   toggleSidebar: (): void => {
-    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
+    set((state) => {
+      const newValue = !state.sidebarCollapsed;
+      stateLog.debug({ sidebarCollapsed: newValue }, 'toggleSidebar');
+      return { sidebarCollapsed: newValue };
+    });
   },
 
   setSidebarCollapsed: (collapsed: boolean): void => {
+    stateLog.debug({ sidebarCollapsed: collapsed }, 'setSidebarCollapsed');
     set({ sidebarCollapsed: collapsed });
   },
 
   openAddProjectModal: (): void => {
+    stateLog.debug('openAddProjectModal');
     set({ addProjectModalOpen: true });
   },
 
   closeAddProjectModal: (): void => {
+    stateLog.debug('closeAddProjectModal');
     set({ addProjectModalOpen: false });
   },
 
@@ -83,10 +93,12 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
     set((state) => {
       const index = state.expandedProjectIds.indexOf(projectId);
       if (index >= 0) {
+        stateLog.debug({ projectId, expanded: false }, 'toggleProjectExpanded');
         return {
           expandedProjectIds: state.expandedProjectIds.filter((id) => id !== projectId),
         };
       }
+      stateLog.debug({ projectId, expanded: true }, 'toggleProjectExpanded');
       return {
         expandedProjectIds: [...state.expandedProjectIds, projectId],
       };
@@ -97,11 +109,13 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
     set((state) => {
       const isCurrentlyExpanded = state.expandedProjectIds.includes(projectId);
       if (expanded && !isCurrentlyExpanded) {
+        stateLog.debug({ projectId, expanded }, 'setProjectExpanded');
         return {
           expandedProjectIds: [...state.expandedProjectIds, projectId],
         };
       }
       if (!expanded && isCurrentlyExpanded) {
+        stateLog.debug({ projectId, expanded }, 'setProjectExpanded');
         return {
           expandedProjectIds: state.expandedProjectIds.filter((id) => id !== projectId),
         };
@@ -111,22 +125,27 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
   },
 
   setSelectedProject: (id: string | null): void => {
+    stateLog.debug({ selectedProjectId: id }, 'setSelectedProject');
     set({ selectedProjectId: id });
   },
 
   setActiveShell: (id: string | null): void => {
+    stateLog.info({ activeShellId: id }, 'setActiveShell');
     set({ activeShellId: id });
   },
 
   setTerminalFontSize: (size: number): void => {
+    stateLog.debug({ terminalFontSize: size }, 'setTerminalFontSize');
     set({ terminalFontSize: size });
   },
 
   setTerminalTheme: (themeId: string): void => {
+    stateLog.debug({ terminalTheme: themeId }, 'setTerminalTheme');
     set({ terminalTheme: themeId });
   },
 
   setWorkspaceState: (state: WorkspaceStateUpdate): void => {
+    stateLog.info({ workspaceState: state }, 'setWorkspaceState (from server)');
     set((current) => ({
       sidebarCollapsed: state.sidebarCollapsed ?? current.sidebarCollapsed,
       expandedProjectIds: state.expandedProjectIds ?? current.expandedProjectIds,
@@ -137,6 +156,7 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
   },
 
   recordShellActivity: (shellId: string): void => {
+    // Don't log this one as it's very frequent (every keystroke/output)
     set((state) => ({
       shellActivityTimestamps: {
         ...state.shellActivityTimestamps,
@@ -151,6 +171,7 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
   },
 
   reset: (): void => {
+    stateLog.info('reset (clearing all state)');
     set(initialState);
   },
 }), shallow);

@@ -102,13 +102,6 @@ describe('useProjects', () => {
 
   describe('useCreateProject', () => {
     it('creates project via API', async () => {
-      // Mock initial fetch (empty)
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ projects: [] }),
-      });
-
       // Mock create response
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -125,7 +118,7 @@ describe('useProjects', () => {
           }),
       });
 
-      // Mock refetch after mutation
+      // Mock refetch after mutation (invalidateQueries triggers refetch)
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,

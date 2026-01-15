@@ -1,6 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import type { ReactNode } from 'react';
+import { log } from '@client/services/logger';
+
+const queryLog = log.query;
 
 // Type for HMR data storage
 interface HmrData {
@@ -9,6 +12,7 @@ interface HmrData {
 
 // Preserve QueryClient across HMR to prevent cache loss during development
 function createQueryClient(): QueryClient {
+  queryLog.info('Creating new QueryClient');
   return new QueryClient({
     defaultOptions: {
       queries: {
@@ -25,7 +29,11 @@ let queryClient: QueryClient;
 if (import.meta.hot?.data) {
   // In development with HMR enabled
   const hmrData = import.meta.hot.data as HmrData;
-  hmrData.queryClient ??= createQueryClient();
+  if (!hmrData.queryClient) {
+    hmrData.queryClient = createQueryClient();
+  } else {
+    queryLog.debug('Reusing existing QueryClient from HMR');
+  }
   queryClient = hmrData.queryClient;
   import.meta.hot.accept();
 } else {

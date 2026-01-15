@@ -6,6 +6,10 @@ import { useDeleteProject } from '@client/hooks/useProjects';
 import { useShells, useCreateShell, useActiveShellId } from '@client/hooks/useShells';
 import { ShellList } from '@client/components/shells/ShellList';
 import { useProjectAiStatus, type ProjectAiStatus } from '@client/components/shells/ShellItem';
+import { log } from '@client/services/logger';
+
+const projectLog = log.project;
+const shellLog = log.shell;
 
 interface ProjectItemProps {
   project: Project;
@@ -35,10 +39,12 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
   const statusColor = getProjectStatusColor(projectAiStatus);
 
   const handleToggle = (): void => {
+    projectLog.debug({ projectId: project.id, projectName: project.name, expanded: !isExpanded }, 'Project toggle');
     toggleProjectExpanded(project.id);
   };
 
   const handleDelete = (): void => {
+    projectLog.info({ projectId: project.id, projectName: project.name }, 'Deleting project');
     deleteProjectMutation.mutate(project.id);
   };
 
@@ -47,10 +53,12 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
     const bashShellCount = shells.filter((s) => s.type === 'bash').length;
     const shellName = `bash-${String(bashShellCount + 1)}`;
 
+    shellLog.info({ projectId: project.id, shellName, type: 'bash' }, 'Creating bash shell');
     createShellMutation.mutate(
       { projectId: project.id, name: shellName, type: 'bash' },
       {
         onSuccess: (data) => {
+          shellLog.info({ shellId: data.shell.id, shellName }, 'Shell created, setting active');
           setActiveShell(data.shell.id);
         },
       },
@@ -62,10 +70,12 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
     const aiShellCount = shells.filter((s) => s.type === 'ai').length;
     const shellName = `ai-${String(aiShellCount + 1)}`;
 
+    shellLog.info({ projectId: project.id, shellName, type: 'ai' }, 'Creating AI shell');
     createShellMutation.mutate(
       { projectId: project.id, name: shellName, type: 'ai' },
       {
         onSuccess: (data) => {
+          shellLog.info({ shellId: data.shell.id, shellName }, 'AI shell created, setting active');
           setActiveShell(data.shell.id);
         },
       },

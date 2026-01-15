@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Modal, Box, Group, Button, Text, Stack, UnstyledButton, Breadcrumbs, Anchor, Loader, Alert, Center } from '@mantine/core';
 import { IconFolder, IconAlertCircle } from '@tabler/icons-react';
 import { api, type DirectoryEntry } from '@client/services/api';
+import { log } from '@client/services/logger';
+
+const uiLog = log.ui;
 
 interface AddProjectModalProps {
   opened: boolean;
@@ -47,14 +50,17 @@ export function AddProjectModal({ opened, onClose, onSelect }: AddProjectModalPr
   const [error, setError] = useState<string | null>(null);
 
   const fetchDirectory = useCallback(async (path: string) => {
+    uiLog.debug({ path }, 'AddProjectModal: fetching directory');
     setIsLoading(true);
     setError(null);
     try {
       const result = await api.browseDirectory(path);
       setCurrentPath(result.path);
       setEntries(result.entries.filter((e) => e.isDirectory));
+      uiLog.debug({ path: result.path, entryCount: result.entries.length }, 'AddProjectModal: directory loaded');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load directory';
+      uiLog.error({ path, error: message }, 'AddProjectModal: failed to load directory');
       setError(message);
     } finally {
       setIsLoading(false);
@@ -63,15 +69,18 @@ export function AddProjectModal({ opened, onClose, onSelect }: AddProjectModalPr
 
   useEffect(() => {
     if (opened) {
+      uiLog.info('AddProjectModal: opened');
       // Fetch user's home directory and browse it
       setIsLoading(true);
       void (async (): Promise<void> => {
         try {
           const homeResult = await api.getHomeDirectory();
+          uiLog.debug({ homePath: homeResult.path }, 'AddProjectModal: home directory fetched');
           setHomePath(homeResult.path);
           await fetchDirectory(homeResult.path);
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Failed to get home directory';
+          uiLog.error({ error: message }, 'AddProjectModal: failed to get home directory');
           setError(message);
           setIsLoading(false);
         }
@@ -81,20 +90,24 @@ export function AddProjectModal({ opened, onClose, onSelect }: AddProjectModalPr
 
   const handleDirectoryClick = (entry: DirectoryEntry): void => {
     const newPath = currentPath === '/' ? `/${entry.name}` : `${currentPath}/${entry.name}`;
+    uiLog.debug({ directory: entry.name, newPath }, 'AddProjectModal: navigating to directory');
     void fetchDirectory(newPath);
   };
 
   const handleBreadcrumbClick = (path: string): void => {
+    uiLog.debug({ path }, 'AddProjectModal: breadcrumb navigation');
     void fetchDirectory(path);
   };
 
   const handleSelect = (): void => {
+    uiLog.info({ path: currentPath }, 'AddProjectModal: directory selected');
     onSelect(currentPath);
     setCurrentPath('');
     setHomePath('');
   };
 
   const handleClose = (): void => {
+    uiLog.debug('AddProjectModal: closed');
     onClose();
     setCurrentPath('');
     setHomePath('');

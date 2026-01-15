@@ -3,6 +3,9 @@
  */
 import type { Project, Shell, ShellType, WorkspaceState } from '@shared/types';
 import { ApiError } from './errors';
+import { log } from './logger';
+
+const apiLog = log.api;
 
 // Response types
 export interface ProjectsResponse {
@@ -102,6 +105,11 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
+  const method = options.method ?? 'GET';
+  const startTime = performance.now();
+
+  apiLog.debug({ method, path }, 'API request started');
+
   const headers = new Headers({
     'Content-Type': 'application/json',
   });
@@ -118,25 +126,27 @@ async function request<T>(
     }
   }
 
-  const response = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers,
-  });
+  try {
+    const response = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers,
+    });
 
-  return handleResponse<T>(response);
+    const durationMs = Math.round(performance.now() - startTime);
+    apiLog.info({ method, path, status: response.status, durationMs }, 'API request completed');
+
+    return await handleResponse<T>(response);
+  } catch (err) {
+    const durationMs = Math.round(performance.now() - startTime);
+    apiLog.error({ method, path, durationMs, error: err instanceof Error ? err.message : String(err) }, 'API request failed');
+    throw err;
+  }
 }
 
 // Health API
 export async function checkServerHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/health');
-}
-
-// Debug helper to get elapsed time since terminal switch started
-function getElapsed(): string {
-  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
-  if (!start) return '?.??';
-  return (performance.now() - start).toFixed(2);
 }
 
 /**
@@ -149,29 +159,33 @@ export async function waitForServerHealth(options: {
   onAttempt?: (attempt: number) => void;
 } = {}): Promise<HealthResponse> {
   const { maxAttempts = 10, delayMs = 1000, onAttempt } = options;
-  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth START (maxAttempts=${String(maxAttempts)}, delayMs=${String(delayMs)})`);
+  const startTime = performance.now();
+
+  apiLog.info({ maxAttempts, delayMs }, 'Starting health check polling');
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)}/${String(maxAttempts)}`);
+    apiLog.debug({ attempt, maxAttempts }, 'Health check attempt');
     onAttempt?.(attempt);
     try {
       const health = await checkServerHealth();
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)} response: status=${health.status}, websocket=${String(health.services.websocket)}`);
       if (health.status === 'ok' && health.services.websocket) {
-        console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth SUCCESS after ${String(attempt)} attempt(s)`);
+        const totalMs = Math.round(performance.now() - startTime);
+        apiLog.info({ attempt, totalMs }, 'Server health check passed');
         return health;
       }
+      apiLog.debug({ status: health.status, websocket: health.services.websocket }, 'Server not fully ready yet');
     } catch (err) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth attempt ${String(attempt)} FAILED:`, err);
+      apiLog.debug({ attempt, error: err instanceof Error ? err.message : String(err) }, 'Health check attempt failed');
       // Server not ready yet, will retry
     }
 
     if (attempt < maxAttempts) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - waitForServerHealth waiting ${String(delayMs)}ms before retry...`);
+      apiLog.debug({ delayMs }, 'Waiting before next health check');
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
+  apiLog.error({ maxAttempts }, 'Server not healthy after max attempts');
   throw new Error(`Server not healthy after ${String(maxAttempts)} attempts`);
 }
 

@@ -3,6 +3,9 @@ import { api } from '@client/services/api';
 import { useUIStore } from '@client/stores/uiStore';
 import { queryKeys } from './queryKeys';
 import type { Project } from '@shared/types';
+import { log } from '@client/services/logger';
+
+const projectLog = log.project;
 
 /**
  * Hook to fetch all projects
@@ -24,9 +27,16 @@ export function useCreateProject(): UseMutationResult<{ project: Project }, Erro
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (path: string) => api.createProject(path),
-    onSuccess: () => {
+    mutationFn: (path: string) => {
+      projectLog.info({ path }, 'Creating project');
+      return api.createProject(path);
+    },
+    onSuccess: (data) => {
+      projectLog.info({ projectId: data.project.id, projectName: data.project.name }, 'Project created');
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+    },
+    onError: (error, path) => {
+      projectLog.error({ path, error: error.message }, 'Project creation failed');
     },
   });
 }
@@ -38,9 +48,13 @@ export function useDeleteProject(): UseMutationResult<void, Error, string, { pre
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => api.deleteProject(id),
+    mutationFn: (id: string) => {
+      projectLog.info({ projectId: id }, 'Deleting project');
+      return api.deleteProject(id);
+    },
     // Optimistic update
     onMutate: async (id: string) => {
+      projectLog.debug({ projectId: id }, 'Optimistically removing project from UI');
       await queryClient.cancelQueries({ queryKey: queryKeys.projects.all });
 
       const previousProjects = queryClient.getQueryData<Project[]>(queryKeys.projects.all);
@@ -52,12 +66,14 @@ export function useDeleteProject(): UseMutationResult<void, Error, string, { pre
 
       return { previousProjects };
     },
-    onError: (_err, _id, context) => {
+    onError: (err, id, context) => {
+      projectLog.error({ projectId: id, error: err.message }, 'Project deletion failed, rolling back');
       if (context?.previousProjects) {
         queryClient.setQueryData(queryKeys.projects.all, context.previousProjects);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, id) => {
+      projectLog.debug({ projectId: id }, 'Project deletion settled, invalidating queries');
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
     },
   });
@@ -70,10 +86,16 @@ export function useUpdateProject(): UseMutationResult<{ project: Project }, Erro
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: { name?: string } }) =>
-      api.updateProject(id, updates),
-    onSuccess: () => {
+    mutationFn: ({ id, updates }: { id: string; updates: { name?: string } }) => {
+      projectLog.info({ projectId: id, updates }, 'Updating project');
+      return api.updateProject(id, updates);
+    },
+    onSuccess: (data) => {
+      projectLog.info({ projectId: data.project.id, projectName: data.project.name }, 'Project updated');
       void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+    },
+    onError: (error, { id }) => {
+      projectLog.error({ projectId: id, error: error.message }, 'Project update failed');
     },
   });
 }

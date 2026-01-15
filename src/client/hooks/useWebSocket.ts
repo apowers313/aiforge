@@ -4,13 +4,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ReconnectingWebSocket, type ReconnectingWebSocketOptions } from '@client/services/websocket.js';
 import { waitForServerHealth } from '@client/services/api.js';
+import { log } from '@client/services/logger';
 
-// Debug helper to get elapsed time since terminal switch started
-function getElapsed(): string {
-  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
-  if (!start) return '?.??';
-  return (performance.now() - start).toFixed(2);
-}
+const wsHookLog = log.websocket;
 
 /**
  * WebSocket connection status
@@ -103,9 +99,9 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
   }, [onMessage, onOpen, onClose, onError]);
 
   const connect = useCallback(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() called, wsRef.current=${String(!!wsRef.current)}`);
+    wsHookLog.debug({ hasExistingConnection: !!wsRef.current }, 'useWebSocket.connect() called');
     if (wsRef.current) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket.connect() - already connected, returning`);
+      wsHookLog.debug('Already connected, returning');
       return;
     }
 
@@ -113,42 +109,42 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
     if (waitForHealth && !healthCheckInProgressRef.current) {
       healthCheckInProgressRef.current = true;
       setStatus('connecting');
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Starting health check (waitForHealth=true)`);
+      wsHookLog.info('Starting health check before WebSocket connection');
 
       waitForServerHealth({ maxAttempts: 600, delayMs: 1000 })
         .then(() => {
-          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Health check PASSED`);
+          wsHookLog.info('Health check passed, proceeding with WebSocket connection');
           healthCheckInProgressRef.current = false;
           // Now actually connect
           if (!wsRef.current) {
-            console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Creating ReconnectingWebSocket`);
+            wsHookLog.debug({ url }, 'Creating ReconnectingWebSocket');
             wsRef.current = new ReconnectingWebSocket(url, {
               ...reconnectOptions,
               onMessage: (data): void => {
                 onMessageRef.current?.(data);
               },
               onOpen: (): void => {
-                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket OPEN`);
+                wsHookLog.info('useWebSocket: connection opened');
                 setStatus('connected');
                 onOpenRef.current?.();
               },
               onClose: (): void => {
-                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket CLOSED`);
+                wsHookLog.info('useWebSocket: connection closed');
                 setStatus('disconnected');
                 onCloseRef.current?.();
               },
               onError: (event): void => {
-                console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: WebSocket ERROR`);
+                wsHookLog.error({ type: event.type }, 'useWebSocket: connection error');
                 setStatus('error');
                 onErrorRef.current?.(event);
               },
             });
-            console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Calling wsRef.current.connect()`);
+            wsHookLog.debug('Initiating WebSocket connection');
             wsRef.current.connect();
           }
         })
         .catch(() => {
-          console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Health check FAILED`);
+          wsHookLog.error('Health check failed');
           healthCheckInProgressRef.current = false;
           setStatus('error');
           onErrorRef.current?.(new Event('health_check_failed'));
@@ -156,7 +152,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
       return;
     }
 
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - useWebSocket: Connecting without health check`);
+    wsHookLog.debug({ url }, 'Connecting without health check');
     setStatus('connecting');
 
     wsRef.current = new ReconnectingWebSocket(url, {
@@ -165,14 +161,17 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}): Us
         onMessageRef.current?.(data);
       },
       onOpen: (): void => {
+        wsHookLog.info('useWebSocket: connection opened');
         setStatus('connected');
         onOpenRef.current?.();
       },
       onClose: (): void => {
+        wsHookLog.info('useWebSocket: connection closed');
         setStatus('disconnected');
         onCloseRef.current?.();
       },
       onError: (event): void => {
+        wsHookLog.error({ type: event.type }, 'useWebSocket: connection error');
         setStatus('error');
         onErrorRef.current?.(event);
       },

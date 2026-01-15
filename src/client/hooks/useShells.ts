@@ -3,6 +3,9 @@ import { api } from '@client/services/api';
 import { useUIStore } from '@client/stores/uiStore';
 import { queryKeys } from './queryKeys';
 import type { Shell, ShellType } from '@shared/types';
+import { log } from '@client/services/logger';
+
+const shellLog = log.shell;
 
 /**
  * Hook to fetch shells for a specific project
@@ -50,12 +53,18 @@ export function useCreateShell(): UseMutationResult<{ shell: Shell }, Error, { p
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ projectId, name, type }: { projectId: string; name?: string; type?: ShellType }) =>
-      api.createShell(projectId, name, type),
+    mutationFn: ({ projectId, name, type }: { projectId: string; name?: string; type?: ShellType }) => {
+      shellLog.info({ projectId, name, type }, 'Creating shell');
+      return api.createShell(projectId, name, type);
+    },
     onSuccess: (data) => {
+      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name, type: data.shell.type }, 'Shell created');
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(data.shell.projectId),
       });
+    },
+    onError: (error, { projectId, name, type }) => {
+      shellLog.error({ projectId, name, type, error: error.message }, 'Shell creation failed');
     },
   });
 }
@@ -74,10 +83,13 @@ export function useDeleteShell(): UseMutationResult<{ shellId: string; projectId
   const activeShellId = useUIStore((state) => state.activeShellId);
 
   return useMutation({
-    mutationFn: ({ shellId, projectId }: { shellId: string; projectId: string }) =>
-      api.deleteShell(shellId).then(() => ({ shellId, projectId })),
+    mutationFn: ({ shellId, projectId }: { shellId: string; projectId: string }) => {
+      shellLog.info({ shellId, projectId }, 'Deleting shell');
+      return api.deleteShell(shellId).then(() => ({ shellId, projectId }));
+    },
     // Optimistic update
     onMutate: async ({ shellId, projectId }) => {
+      shellLog.debug({ shellId, projectId }, 'Optimistically removing shell from UI');
       await queryClient.cancelQueries({ queryKey: queryKeys.shells.byProject(projectId) });
 
       const previousShells = queryClient.getQueryData<Shell[]>(
@@ -91,12 +103,14 @@ export function useDeleteShell(): UseMutationResult<{ shellId: string; projectId
 
       // Clear active shell if it's the one being deleted
       if (activeShellId === shellId) {
+        shellLog.debug({ shellId }, 'Clearing active shell (deleted)');
         setActiveShell(null);
       }
 
       return { previousShells, projectId };
     },
-    onError: (_err, _variables, context) => {
+    onError: (err, { shellId }, context) => {
+      shellLog.error({ shellId, error: err.message }, 'Shell deletion failed, rolling back');
       if (context?.previousShells) {
         queryClient.setQueryData(
           queryKeys.shells.byProject(context.projectId),
@@ -105,6 +119,7 @@ export function useDeleteShell(): UseMutationResult<{ shellId: string; projectId
       }
     },
     onSettled: (_data, _error, variables) => {
+      shellLog.debug({ shellId: variables.shellId }, 'Shell deletion settled');
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(variables.projectId),
       });
@@ -119,12 +134,18 @@ export function useUpdateShell(): UseMutationResult<{ shell: Shell }, Error, { s
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ shellId, updates }: { shellId: string; updates: { name?: string; done?: boolean } }) =>
-      api.updateShell(shellId, updates),
+    mutationFn: ({ shellId, updates }: { shellId: string; updates: { name?: string; done?: boolean } }) => {
+      shellLog.info({ shellId, updates }, 'Updating shell');
+      return api.updateShell(shellId, updates);
+    },
     onSuccess: (data) => {
+      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name }, 'Shell updated');
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(data.shell.projectId),
       });
+    },
+    onError: (error, { shellId }) => {
+      shellLog.error({ shellId, error: error.message }, 'Shell update failed');
     },
   });
 }
@@ -136,11 +157,18 @@ export function useRestartShell(): UseMutationResult<{ shell: Shell }, Error, st
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (shellId: string) => api.restartShell(shellId),
+    mutationFn: (shellId: string) => {
+      shellLog.info({ shellId }, 'Restarting shell');
+      return api.restartShell(shellId);
+    },
     onSuccess: (data) => {
+      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name, newPid: data.shell.pid }, 'Shell restarted');
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(data.shell.projectId),
       });
+    },
+    onError: (error, shellId) => {
+      shellLog.error({ shellId, error: error.message }, 'Shell restart failed');
     },
   });
 }
@@ -190,14 +218,21 @@ export function useStartShell(): UseMutationResult<{ shell: Shell }, Error, stri
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (shellId: string) => api.startShell(shellId),
+    mutationFn: (shellId: string) => {
+      shellLog.info({ shellId }, 'Starting shell PTY');
+      return api.startShell(shellId);
+    },
     onSuccess: (data) => {
+      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name, pid: data.shell.pid }, 'Shell PTY started');
       // Update the shell in the cache
       const projectId = data.shell.projectId;
       queryClient.setQueryData<Shell[]>(
         queryKeys.shells.byProject(projectId),
         (old) => old?.map((s) => (s.id === data.shell.id ? data.shell : s)) ?? [],
       );
+    },
+    onError: (error, shellId) => {
+      shellLog.error({ shellId, error: error.message }, 'Shell start failed');
     },
   });
 }
