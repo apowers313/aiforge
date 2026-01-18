@@ -15,10 +15,13 @@ export interface WorkspaceStateServiceOptions {
 
 const DEFAULT_WORKSPACE_STATE: Omit<WorkspaceState, 'updatedAt'> = {
   sidebarCollapsed: false,
+  sidebarWidth: 280,
   expandedProjectIds: [],
   activeShellId: null,
   terminalFontSize: 14,
   terminalTheme: DEFAULT_TERMINAL_THEME_ID,
+  contextSidebarPinned: false,
+  contextSidebarWidth: 320,
 };
 
 export class WorkspaceStateService {

@@ -77,12 +77,12 @@ export class PtyManager extends EventEmitter {
     this._sessions.set(shellId, session);
 
     // Handle session activity (for tracking lastActivityAt on AI shells)
-    // Emit on both output and input
+    // Emit separate events for input and output so ShellService can distinguish them
     session.on('data', () => {
-      this.emit('session:activity', shellId);
+      this.emit('session:output', shellId);
     });
     session.on('input', () => {
-      this.emit('session:activity', shellId);
+      this.emit('session:input', shellId);
     });
 
     // Handle session exit

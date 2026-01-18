@@ -6,7 +6,6 @@ import type { Shell, ShellType } from '@shared/types/index.js';
 import type { ShellStore } from '../../storage/stores/ShellStore.js';
 import type { ProjectStore } from '../../storage/stores/ProjectStore.js';
 import { PtyPool, type ShellStoreInterface } from '../pty/index.js';
-import { getSocketPath } from '../pty/daemon/protocol.js';
 
 export interface ShellServiceOptions {
   shellStore: ShellStore;
@@ -18,8 +17,13 @@ export class ShellService {
   private readonly shellStore: ShellStore;
   private readonly projectStore: ProjectStore;
   private readonly ptyPool: PtyPool | null;
-  private readonly lastOutputTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly lastOutputDebounceMs = 1000; // Debounce lastOutputAt updates by 1 second
+  private readonly lastActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lastActivityDebounceMs = 1000; // Debounce lastActivityAt updates by 1 second
+
+  // Track last input time per shell for input-aware activity tracking
+  // Output only counts as activity if there was recent input (within this window)
+  private readonly lastInputTimes = new Map<string, number>();
+  private readonly inputActivityWindowMs = 30000; // 30 seconds - output after input counts as activity
 
   constructor(options: ShellServiceOptions) {
     this.shellStore = options.shellStore;
@@ -32,10 +36,22 @@ export class ShellService {
         void this._handleSessionExit(shellId, exitCode);
       });
 
-      // Track lastActivityAt for AI shells (debounced to reduce disk writes)
-      // Listen to both output and input activity
-      this.ptyPool.on('session:activity', (shellId: string) => {
+      // Track lastActivityAt for AI shells with input-aware logic:
+      // - Input always counts as activity
+      // - Output only counts if there was recent input (within 30s)
+      // This prevents prompt refresh after reconnection from counting as activity
+      this.ptyPool.on('session:input', (shellId: string) => {
+        this.lastInputTimes.set(shellId, Date.now());
         void this._handleSessionActivity(shellId);
+      });
+
+      this.ptyPool.on('session:output', (shellId: string) => {
+        // Only count output as activity if there was recent input
+        const lastInputTime = this.lastInputTimes.get(shellId);
+        if (lastInputTime && Date.now() - lastInputTime < this.inputActivityWindowMs) {
+          void this._handleSessionActivity(shellId);
+        }
+        // Otherwise, output is ignored (likely prompt refresh or other housekeeping)
       });
     }
   }
@@ -51,19 +67,19 @@ export class ShellService {
     }
 
     // Debounce the update to reduce disk writes
-    const existingTimer = this.lastOutputTimers.get(shellId);
+    const existingTimer = this.lastActivityTimers.get(shellId);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
     const timer = setTimeout(() => {
-      this.lastOutputTimers.delete(shellId);
+      this.lastActivityTimers.delete(shellId);
       void this.shellStore.update(shellId, {
         lastActivityAt: new Date().toISOString(),
       });
-    }, this.lastOutputDebounceMs);
+    }, this.lastActivityDebounceMs);
 
-    this.lastOutputTimers.set(shellId, timer);
+    this.lastActivityTimers.set(shellId, timer);
   }
 
   /**
@@ -144,78 +160,6 @@ export class ShellService {
       this.ptyPool.kill(id);
     }
     return this.shellStore.delete(id);
-  }
-
-  /**
-   * Start a shell (spawn PTY process)
-   */
-  async start(shellId: string): Promise<Shell> {
-    if (!this.ptyPool) {
-      throw new Error('PTY pool not configured');
-    }
-
-    const shell = await this.shellStore.getById(shellId);
-    if (!shell) {
-      throw new Error('Shell not found');
-    }
-
-    // Check if already running in memory
-    if (this.ptyPool.get(shellId)) {
-      return shell;
-    }
-
-    // In daemon mode, check if a daemon is already running we can reconnect to
-    if (this.ptyPool.usePersistentDaemons && shell.socketPath) {
-      const client = await this.ptyPool.attach(shellId, shell.cwd);
-      if (client) {
-        // Successfully reconnected to existing daemon
-        return shell;
-      }
-      // Socket was stale, clear it and spawn new daemon
-      await this.shellStore.update(shellId, { socketPath: null });
-    }
-
-    // Load scrollback from disk first (for replay on client attach)
-    await this.ptyPool.loadScrollback(shellId);
-
-    // Add restart separator to scrollback if there's existing content
-    const scrollbackStore = this.ptyPool.manager.scrollbackStore;
-    if (scrollbackStore) {
-      const existingEntries = scrollbackStore.getFromMemory(shellId);
-      if (existingEntries.length > 0) {
-        scrollbackStore.append(shellId, 'output', '\r\n\r\n--- shell restarted ---\r\n\r\n');
-      }
-    }
-
-    // Spawn PTY session (use async for daemon mode)
-    if (this.ptyPool.usePersistentDaemons) {
-      await this.ptyPool.spawnAsync(shellId, {
-        cwd: shell.cwd,
-      });
-
-      // Update shell status with socket path
-      const socketPath = getSocketPath(shellId);
-      const updated = await this.shellStore.update(shellId, {
-        status: 'active',
-        pid: null, // Daemon mode doesn't track PID directly
-        socketPath,
-      });
-
-      return updated ?? shell;
-    }
-
-    // Legacy mode: spawn directly
-    const session = this.ptyPool.spawn(shellId, {
-      cwd: shell.cwd,
-    });
-
-    // Update shell status
-    const updated = await this.shellStore.update(shellId, {
-      status: 'active',
-      pid: session.pid,
-    });
-
-    return updated ?? shell;
   }
 
   /**

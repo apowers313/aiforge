@@ -4,9 +4,6 @@ import { IconTerminal2, IconDots, IconTrash, IconPencil, IconRefresh, IconSparkl
 import type { Shell } from '@shared/types';
 import { useDeleteShell, useUpdateShell, useRestartShell, useActiveShellId } from '@client/hooks/useShells';
 import { useUIStore } from '@client/stores/uiStore';
-import { log } from '@client/services/logger';
-
-const shellLog = log.shell;
 
 interface ShellItemProps {
   shell: Shell;
@@ -58,6 +55,10 @@ export function useAiShellActivity(shell: Shell, idleTimeoutMs: number): boolean
 
     const checkActivity = (): void => {
       const isActive = isShellRecentlyActive(shell, clientActivityTimestamp, idleTimeoutMs);
+      const now = Date.now();
+      const timeSinceClient = clientActivityTimestamp ? String(now - clientActivityTimestamp) : 'N/A';
+      const timeSinceServer = shell.lastActivityAt ? String(now - new Date(shell.lastActivityAt).getTime()) : 'N/A';
+      console.log(`[AI_INDICATOR] shell=${shell.name} isActive=${String(isActive)} clientTs=${timeSinceClient}ms serverTs=${timeSinceServer}ms`);
       setIsRecentlyActive(isActive);
     };
 
@@ -147,6 +148,7 @@ export function useProjectAiStatus(shells: Shell[], idleTimeoutMs = 5000): Proje
 
 export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorOffset = 7 }: ShellItemProps): React.ReactElement {
   const { activeShellId, setActiveShell } = useActiveShellId();
+  const toggleContextSidebar = useUIStore((state) => state.toggleContextSidebar);
   const deleteShellMutation = useDeleteShell();
   const updateShellMutation = useUpdateShell();
   const restartShellMutation = useRestartShell();
@@ -159,19 +161,17 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorO
   const isAiShell = shell.type === 'ai';
 
   const handleClick = (): void => {
-    shellLog.info({ shellId: shell.id, shellName: shell.name, type: shell.type }, 'Shell selected');
     console.log(`[TERMINAL_SWITCH] ${performance.now().toFixed(2)}ms - Click on shell: ${shell.id} (${shell.name})`);
     (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart = performance.now();
     setActiveShell(shell.id);
+    toggleContextSidebar('shell', shell.id);
   };
 
   const handleDelete = (): void => {
-    shellLog.info({ shellId: shell.id, shellName: shell.name }, 'Deleting shell');
     deleteShellMutation.mutate({ shellId: shell.id, projectId });
   };
 
   const handleRenameClick = (): void => {
-    shellLog.debug({ shellId: shell.id }, 'Rename modal opened');
     setNewName(shell.name);
     setRenameModalOpen(true);
   };
@@ -181,12 +181,10 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorO
       setRenameModalOpen(false);
       return;
     }
-    shellLog.info({ shellId: shell.id, oldName: shell.name, newName: newName.trim() }, 'Renaming shell');
     updateShellMutation.mutate(
       { shellId: shell.id, updates: { name: newName.trim() } },
       {
         onSuccess: () => {
-          shellLog.debug({ shellId: shell.id }, 'Shell renamed successfully');
           setRenameModalOpen(false);
         },
       },
@@ -194,16 +192,13 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorO
   };
 
   const handleRestart = (): void => {
-    shellLog.info({ shellId: shell.id, shellName: shell.name }, 'Restarting shell');
     restartShellMutation.mutate(shell.id);
   };
 
   const handleToggleDone = (): void => {
-    const newDoneState = !shell.done;
-    shellLog.info({ shellId: shell.id, shellName: shell.name, done: newDoneState }, 'Toggling shell done state');
     updateShellMutation.mutate({
       shellId: shell.id,
-      updates: { done: newDoneState },
+      updates: { done: !shell.done },
     });
   };
 

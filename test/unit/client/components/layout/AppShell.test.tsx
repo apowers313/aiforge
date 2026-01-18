@@ -7,15 +7,41 @@ import { renderWithProviders, createTestQueryClient } from '../../../../utils/te
 import type { QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@client/hooks/queryKeys';
 
-// Mock useTerminal to prevent WebSocket connection attempts in tests
-vi.mock('@client/hooks/useTerminal', () => ({
-  useTerminal: vi.fn(() => ({
-    isConnected: true,
-    connectionError: null,
+// Mock useTerminalSession to prevent WebSocket connection attempts in tests
+// Use vi.hoisted to ensure state is available before vi.mock is hoisted
+const { mockSessionState } = vi.hoisted(() => {
+  return {
+    mockSessionState: {
+      current: {
+        status: 'open' as const,
+        shell: {
+          id: 'shell-1',
+          projectId: 'proj-1',
+          name: 'bash-1',
+          cwd: '/tmp',
+          status: 'active' as const,
+          type: 'bash' as const,
+          pid: 1234,
+          socketPath: null,
+          lastActivityAt: null,
+          done: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        scrollback: '',
+      },
+    },
+  };
+});
+
+vi.mock('@client/hooks/useTerminalSession', () => ({
+  useTerminalSession: vi.fn(() => ({
+    state: mockSessionState.current,
+    open: vi.fn(),
+    close: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
-    disconnect: vi.fn(),
-    reconnect: vi.fn(),
+    retry: vi.fn(),
   })),
 }));
 
@@ -88,23 +114,43 @@ describe('AppShellLayout', () => {
       name: 'bash-1',
       cwd: '/tmp',
       status: 'active' as const,
+      type: 'bash' as const,
       pid: 1234,
+      socketPath: null,
+      lastActivityAt: null,
+      done: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    // Mock getProjects
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ projects: [mockProject] }),
-    });
-
-    // Mock getShells for all projects (useAllShells)
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [mockShell] }),
+    // Use mockImplementation to handle all fetch calls dynamically
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/projects') && !url.includes('/shells')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ projects: [mockProject] }),
+        });
+      }
+      if (url.includes('/shells') && url.includes('/start')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ shell: mockShell }),
+        });
+      }
+      if (url.includes('/shells')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ shells: [mockShell] }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
     });
 
     // Add shell to TanStack Query cache (Terminal component uses useShell which searches cache)

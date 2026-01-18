@@ -1,27 +1,41 @@
 /**
- * TerminalHandler - WebSocket message handler for terminal I/O
+ * TerminalHandler - WebSocket message handler for terminal I/O using new session protocol
  */
-import type { PtyPool } from '@server/services/pty/PtyPool.js';
+import type {
+  SessionOpenMessage,
+  SessionCloseMessage,
+  SessionInputMessage,
+  SessionResizeMessage,
+  SessionOpenedMessage,
+  SessionClosedMessage,
+  SessionErrorMessage,
+  SessionOutputMessage,
+} from '@shared/types/index.js';
+import type { ShellSessionManager } from '@server/services/shell/ShellSessionManager.js';
+import { SessionError } from '@server/services/shell/SessionError.js';
 import { logger } from '@server/utils/logger.js';
 
 /**
- * Terminal message types
+ * Terminal message types (new session protocol + legacy support)
  */
-export type TerminalMessageType = 'input' | 'output' | 'resize' | 'attach' | 'detach' | 'status' | 'error';
+export type TerminalMessageType =
+  | 'session.open'
+  | 'session.close'
+  | 'session.input'
+  | 'session.resize'
+  | 'input'
+  | 'resize';
 
 /**
  * Base terminal message
  */
 export interface TerminalMessage {
-  type: TerminalMessageType;
+  type: string;
   shellId?: string;
+  requestId?: string;
   data?: string;
   cols?: number;
   rows?: number;
-  status?: string;
-  exitCode?: number;
-  code?: string;
-  message?: string;
 }
 
 /**
@@ -32,44 +46,51 @@ export interface WebSocketLike {
 }
 
 /**
- * Client attachment info
+ * Client subscription info
  */
-interface ClientAttachment {
+interface ClientSubscription {
   shellId: string;
   dataCleanup: () => void;
   exitCleanup: () => void;
 }
 
 /**
- * TerminalHandler manages WebSocket client connections to PTY sessions
+ * TerminalHandler manages WebSocket client connections to shell sessions
+ * using the new session protocol
  */
 export class TerminalHandler {
-  private readonly _ptyPool: PtyPool;
-  private readonly _clientAttachments = new Map<WebSocketLike, ClientAttachment[]>();
+  private readonly _sessionManager: ShellSessionManager;
+  private readonly _clientSubscriptions = new Map<WebSocketLike, ClientSubscription[]>();
 
-  constructor(ptyPool: PtyPool) {
-    this._ptyPool = ptyPool;
+  constructor(sessionManager: ShellSessionManager) {
+    this._sessionManager = sessionManager;
   }
 
   /**
    * Handle incoming WebSocket message
    */
   handleMessage(ws: WebSocketLike, message: TerminalMessage): void {
-    const startTime = Date.now();
     logger.debug({ type: message.type, shellId: message.shellId }, 'Received terminal message');
-    logger.info({ type: message.type, shellId: message.shellId, startTime }, '[TERMINAL_SWITCH_SERVER] Received message');
+
     switch (message.type) {
+      case 'session.open':
+        this._handleSessionOpen(ws, message as SessionOpenMessage);
+        break;
+      case 'session.close':
+        this._handleSessionClose(ws, message as SessionCloseMessage);
+        break;
+      case 'session.input':
+        this._handleSessionInput(ws, message as SessionInputMessage);
+        break;
+      case 'session.resize':
+        this._handleSessionResize(ws, message as SessionResizeMessage);
+        break;
+      // Legacy message support
       case 'input':
-        this._handleInput(ws, message);
+        this._handleLegacyInput(ws, message);
         break;
       case 'resize':
-        this._handleResize(ws, message);
-        break;
-      case 'attach':
-        this._handleAttach(ws, message);
-        break;
-      case 'detach':
-        this._handleDetach(ws, message);
+        this._handleLegacyResize(ws, message);
         break;
       default:
         // Ignore unknown message types
@@ -78,36 +99,142 @@ export class TerminalHandler {
   }
 
   /**
-   * Handle client disconnect - clean up all attachments
+   * Handle client disconnect - clean up all subscriptions
    */
   handleDisconnect(ws: WebSocketLike): void {
-    const attachments = this._clientAttachments.get(ws);
-    if (attachments) {
-      for (const attachment of attachments) {
-        attachment.dataCleanup();
-        attachment.exitCleanup();
+    const subscriptions = this._clientSubscriptions.get(ws);
+    if (subscriptions) {
+      for (const subscription of subscriptions) {
+        subscription.dataCleanup();
+        subscription.exitCleanup();
       }
-      this._clientAttachments.delete(ws);
+      this._clientSubscriptions.delete(ws);
     }
   }
 
   /**
-   * Attach a client to a shell session
+   * Handle session.open message
    */
-  attachClient(ws: WebSocketLike, shellId: string): void {
-    const attachStartTime = Date.now();
-    logger.info({ shellId, attachStartTime }, '[TERMINAL_SWITCH_SERVER] attachClient START');
-    logger.debug({ shellId }, 'Attaching client to shell');
-    const session = this._ptyPool.get(shellId);
+  private _handleSessionOpen(ws: WebSocketLike, message: SessionOpenMessage): void {
+    const { shellId, requestId } = message;
+
+    void this._sessionManager
+      .openSession(shellId)
+      .then((result) => {
+        // Send session.opened response
+        const response: SessionOpenedMessage = {
+          type: 'session.opened',
+          shellId,
+          requestId,
+          shell: result.shell,
+          scrollback: result.scrollback,
+          cols: result.cols,
+          rows: result.rows,
+        };
+        ws.send(JSON.stringify(response));
+
+        // Subscribe to output
+        this._subscribeToOutput(ws, shellId);
+      })
+      .catch((err: unknown) => {
+        this._sendSessionError(ws, shellId, requestId, err);
+      });
+  }
+
+  /**
+   * Handle session.close message
+   */
+  private _handleSessionClose(ws: WebSocketLike, message: SessionCloseMessage): void {
+    const { shellId, requestId } = message;
+
+    // Unsubscribe from output first
+    this._unsubscribeFromOutput(ws, shellId);
+
+    void this._sessionManager
+      .closeSession(shellId)
+      .then(() => {
+        // Send session.closed response
+        const response: SessionClosedMessage = {
+          type: 'session.closed',
+          shellId,
+          reason: 'requested',
+          ...(requestId !== undefined && { requestId }),
+        };
+        ws.send(JSON.stringify(response));
+      })
+      .catch((err: unknown) => {
+        this._sendSessionError(ws, shellId, requestId, err);
+      });
+  }
+
+  /**
+   * Handle session.input message
+   */
+  private _handleSessionInput(ws: WebSocketLike, message: SessionInputMessage): void {
+    const { shellId, data } = message;
+
+    const session = this._sessionManager.getSession(shellId);
     if (!session) {
-      logger.warn({ shellId }, 'Shell not found in PTY manager');
-      this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
+      this._sendSessionError(ws, shellId, undefined, SessionError.shellNotFound(shellId));
       return;
     }
-    logger.info({ shellId, elapsed: Date.now() - attachStartTime }, '[TERMINAL_SWITCH_SERVER] Found PTY session');
 
-    // Replay scrollback buffer first
-    this._replayScrollback(ws, shellId, attachStartTime);
+    session.write(data);
+  }
+
+  /**
+   * Handle session.resize message
+   */
+  private _handleSessionResize(ws: WebSocketLike, message: SessionResizeMessage): void {
+    const { shellId, cols, rows } = message;
+
+    const session = this._sessionManager.getSession(shellId);
+    if (!session) {
+      this._sendSessionError(ws, shellId, undefined, SessionError.shellNotFound(shellId));
+      return;
+    }
+
+    session.resize(cols, rows);
+  }
+
+  /**
+   * Handle legacy input message (backward compatibility)
+   */
+  private _handleLegacyInput(ws: WebSocketLike, message: TerminalMessage): void {
+    const { shellId, data } = message;
+    if (!shellId || data === undefined) return;
+
+    const session = this._sessionManager.getSession(shellId);
+    if (!session) {
+      this._sendSessionError(ws, shellId, undefined, SessionError.shellNotFound(shellId));
+      return;
+    }
+
+    session.write(data);
+  }
+
+  /**
+   * Handle legacy resize message (backward compatibility)
+   */
+  private _handleLegacyResize(ws: WebSocketLike, message: TerminalMessage): void {
+    const { shellId, cols, rows } = message;
+    if (!shellId || cols === undefined || rows === undefined) return;
+
+    const session = this._sessionManager.getSession(shellId);
+    if (!session) {
+      this._sendSessionError(ws, shellId, undefined, SessionError.shellNotFound(shellId));
+      return;
+    }
+
+    session.resize(cols, rows);
+  }
+
+  /**
+   * Subscribe client to shell output
+   */
+  private _subscribeToOutput(ws: WebSocketLike, shellId: string): void {
+    const session = this._sessionManager.getSession(shellId);
+    if (!session) return;
 
     // Set up data forwarding
     const dataCleanup = session.onData((data: string) => {
@@ -115,131 +242,81 @@ export class TerminalHandler {
     });
 
     // Set up exit notification
-    const exitCleanup = session.onExit((event: { exitCode: number }) => {
-      this._sendStatus(ws, shellId, 'exited', event.exitCode);
+    const exitCleanup = session.onExit((_event: { exitCode: number }) => {
+      const response: SessionClosedMessage = {
+        type: 'session.closed',
+        shellId,
+        reason: 'daemon_exited',
+      };
+      ws.send(JSON.stringify(response));
     });
 
-    // Track attachment
-    const attachments = this._clientAttachments.get(ws) ?? [];
-    attachments.push({ shellId, dataCleanup, exitCleanup });
-    this._clientAttachments.set(ws, attachments);
+    // Track subscription
+    const subscriptions = this._clientSubscriptions.get(ws) ?? [];
+    subscriptions.push({ shellId, dataCleanup, exitCleanup });
+    this._clientSubscriptions.set(ws, subscriptions);
   }
 
   /**
-   * Replay scrollback buffer to a client
+   * Unsubscribe client from shell output
    */
-  private _replayScrollback(ws: WebSocketLike, shellId: string, attachStartTime?: number): void {
-    const scrollbackStore = this._ptyPool.scrollbackStore;
-    if (!scrollbackStore) {
-      logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] No scrollback store');
-      return;
-    }
+  private _unsubscribeFromOutput(ws: WebSocketLike, shellId: string): void {
+    const subscriptions = this._clientSubscriptions.get(ws);
+    if (!subscriptions) return;
 
-    logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Getting scrollback from memory');
-    // Get scrollback from memory (already loaded)
-    const entries = scrollbackStore.getFromMemory(shellId);
-    logger.info({ shellId, entries: entries.length, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Got scrollback entries');
-    if (entries.length === 0) {
-      return;
-    }
-
-    logger.debug({ shellId, entries: entries.length }, 'Replaying scrollback');
-
-    // Send only output entries as a single batch
-    const outputData = entries
-      .filter((e) => e.type === 'output')
-      .map((e) => e.data)
-      .join('');
-
-    logger.info({ shellId, outputDataLen: outputData.length, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Scrollback data prepared');
-
-    if (outputData.length > 0) {
-      this._sendOutput(ws, shellId, outputData, true);
-      logger.info({ shellId, elapsed: attachStartTime ? Date.now() - attachStartTime : 0 }, '[TERMINAL_SWITCH_SERVER] Scrollback SENT');
-    }
-  }
-
-  /**
-   * Detach a client from a shell session
-   */
-  detachClient(ws: WebSocketLike, shellId: string): void {
-    const attachments = this._clientAttachments.get(ws);
-    if (!attachments) return;
-
-    const index = attachments.findIndex((a) => a.shellId === shellId);
+    const index = subscriptions.findIndex((s) => s.shellId === shellId);
     if (index === -1) return;
 
-    const attachment = attachments[index];
-    if (attachment) {
-      attachment.dataCleanup();
-      attachment.exitCleanup();
-      attachments.splice(index, 1);
+    const subscription = subscriptions[index];
+    if (subscription) {
+      subscription.dataCleanup();
+      subscription.exitCleanup();
+      subscriptions.splice(index, 1);
     }
   }
 
-  private _handleInput(ws: WebSocketLike, message: TerminalMessage): void {
-    const { shellId, data } = message;
-    if (!shellId || data === undefined) return;
-
-    const session = this._ptyPool.get(shellId);
-    if (!session) {
-      this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
-      return;
-    }
-
-    session.write(data);
-  }
-
-  private _handleResize(ws: WebSocketLike, message: TerminalMessage): void {
-    const { shellId, cols, rows } = message;
-    if (!shellId || cols === undefined || rows === undefined) return;
-
-    const session = this._ptyPool.get(shellId);
-    if (!session) {
-      this._sendError(ws, 'SHELL_NOT_FOUND', `Shell ${shellId} not found`);
-      return;
-    }
-
-    session.resize(cols, rows);
-  }
-
-  private _handleAttach(ws: WebSocketLike, message: TerminalMessage): void {
-    const { shellId } = message;
-    if (!shellId) return;
-
-    this.attachClient(ws, shellId);
-  }
-
-  private _handleDetach(ws: WebSocketLike, message: TerminalMessage): void {
-    const { shellId } = message;
-    if (!shellId) return;
-
-    this.detachClient(ws, shellId);
-  }
-
+  /**
+   * Send session.output message
+   */
   private _sendOutput(ws: WebSocketLike, shellId: string, data: string, isScrollback = false): void {
-    ws.send(JSON.stringify({
-      type: 'output',
+    const message: SessionOutputMessage = {
+      type: 'session.output',
       shellId,
       data,
       isScrollback,
-    }));
+    };
+    ws.send(JSON.stringify(message));
   }
 
-  private _sendStatus(ws: WebSocketLike, shellId: string, status: string, exitCode: number): void {
-    ws.send(JSON.stringify({
-      type: 'status',
+  /**
+   * Send session.error message
+   */
+  private _sendSessionError(
+    ws: WebSocketLike,
+    shellId: string,
+    requestId: string | undefined,
+    err: unknown,
+  ): void {
+    let code = 'INTERNAL_ERROR';
+    let errMessage = 'Unknown error';
+    let retryable = false;
+
+    if (err instanceof SessionError) {
+      code = err.code;
+      errMessage = err.message;
+      retryable = err.retryable;
+    } else if (err instanceof Error) {
+      errMessage = err.message;
+    }
+
+    const response: SessionErrorMessage = {
+      type: 'session.error',
       shellId,
-      status,
-      exitCode,
-    }));
-  }
-
-  private _sendError(ws: WebSocketLike, code: string, message: string): void {
-    ws.send(JSON.stringify({
-      type: 'error',
-      code,
-      message,
-    }));
+      code: code as SessionErrorMessage['code'],
+      message: errMessage,
+      retryable,
+      ...(requestId !== undefined && { requestId }),
+    };
+    ws.send(JSON.stringify(response));
   }
 }

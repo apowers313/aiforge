@@ -31,6 +31,10 @@ function getProjectStatusColor(status: ProjectAiStatus): string | null {
 export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
   const isExpanded = useUIStore((state) => state.expandedProjectIds.includes(project.id));
   const toggleProjectExpanded = useUIStore((state) => state.toggleProjectExpanded);
+  const toggleContextSidebar = useUIStore((state) => state.toggleContextSidebar);
+  const activeShellId = useUIStore((state) => state.activeShellId);
+  const selectedContextType = useUIStore((state) => state.selectedContextType);
+  const selectedContextId = useUIStore((state) => state.selectedContextId);
   const deleteProjectMutation = useDeleteProject();
   const createShellMutation = useCreateShell();
   const { setActiveShell } = useActiveShellId();
@@ -38,9 +42,18 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
   const projectAiStatus = useProjectAiStatus(shells);
   const statusColor = getProjectStatusColor(projectAiStatus);
 
-  const handleToggle = (): void => {
+  // Project is highlighted when it's the selected context and no shell is active
+  const isSelected = selectedContextType === 'project' && selectedContextId === project.id && activeShellId === null;
+
+  const handleToggle = (e: React.MouseEvent): void => {
+    e.stopPropagation();
     projectLog.debug({ projectId: project.id, projectName: project.name, expanded: !isExpanded }, 'Project toggle');
     toggleProjectExpanded(project.id);
+  };
+
+  const handleOpenContext = (): void => {
+    projectLog.debug({ projectId: project.id, projectName: project.name }, 'Opening project context sidebar');
+    toggleContextSidebar('project', project.id);
   };
 
   const handleDelete = (): void => {
@@ -114,12 +127,12 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
       {/* Content column */}
       <Box style={{ flex: 1, minWidth: 0 }}>
         <Group gap={0} wrap="nowrap">
-          <UnstyledButton
-            onClick={handleToggle}
+          <Box
             style={{
               flex: 1,
               padding: '8px 12px',
               borderRadius: 'var(--mantine-radius-sm)',
+              backgroundColor: isSelected ? 'var(--mantine-color-dark-5)' : 'transparent',
               display: 'flex',
               alignItems: 'center',
               gap: 8,
@@ -127,16 +140,30 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
             className="project-item"
             data-testid="project-item"
           >
-            {isExpanded ? (
-              <IconChevronDown size={14} style={{ flexShrink: 0 }} />
-            ) : (
-              <IconChevronRight size={14} style={{ flexShrink: 0 }} />
-            )}
-            <IconFolder size={16} style={{ flexShrink: 0, color: 'var(--mantine-color-blue-4)' }} />
-            <Text size="sm" truncate style={{ flex: 1 }}>
-              {project.name}
-            </Text>
-          </UnstyledButton>
+            {/* Chevron: expands/collapses shell list */}
+            <UnstyledButton
+              onClick={handleToggle}
+              style={{ display: 'flex', alignItems: 'center' }}
+              data-testid="project-chevron"
+            >
+              {isExpanded ? (
+                <IconChevronDown size={14} style={{ flexShrink: 0 }} />
+              ) : (
+                <IconChevronRight size={14} style={{ flexShrink: 0 }} />
+              )}
+            </UnstyledButton>
+            {/* Folder + Name: opens context sidebar */}
+            <UnstyledButton
+              onClick={handleOpenContext}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}
+              data-testid="project-name"
+            >
+              <IconFolder size={16} style={{ flexShrink: 0, color: 'var(--mantine-color-blue-4)' }} />
+              <Text size="sm" truncate style={{ flex: 1 }}>
+                {project.name}
+              </Text>
+            </UnstyledButton>
+          </Box>
 
           <ActionIcon
             variant="subtle"

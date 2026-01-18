@@ -13,6 +13,8 @@ interface ConfigFile {
   authGuid?: string;
   scrollbackLines?: number;
   logLevel?: ServerConfig['logLevel'];
+  httpsCert?: string;
+  httpsKey?: string;
 }
 
 /**
@@ -76,13 +78,27 @@ export function loadConfig(): ServerConfig {
   const envScrollback = parsePort(process.env.AIFORGE_SCROLLBACK_LINES);
   const envLogLevel = parseLogLevel(process.env.AIFORGE_LOG_LEVEL);
 
-  return {
+  // HTTPS settings (both must be provided for HTTPS mode)
+  const httpsCert = process.env.AIFORGE_HTTPS_CERT ?? configFile?.httpsCert;
+  const httpsKey = process.env.AIFORGE_HTTPS_KEY ?? configFile?.httpsKey;
+
+  const config: ServerConfig = {
     port: envPort ?? configFile?.port ?? randomPort(),
     host: process.env.AIFORGE_HOST ?? configFile?.host ?? '0.0.0.0',
     authGuid: process.env.AIFORGE_AUTH_GUID ?? configFile?.authGuid ?? '',
     scrollbackLines: envScrollback ?? configFile?.scrollbackLines ?? 10000,
     logLevel: envLogLevel ?? configFile?.logLevel ?? 'info',
   };
+
+  // Only add HTTPS settings if defined (exactOptionalPropertyTypes compatibility)
+  if (httpsCert) {
+    config.httpsCert = httpsCert;
+  }
+  if (httpsKey) {
+    config.httpsKey = httpsKey;
+  }
+
+  return config;
 }
 
 /**

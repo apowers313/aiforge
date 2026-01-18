@@ -25,10 +25,13 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
 
   // UI store state
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const expandedProjectIds = useUIStore((s) => s.expandedProjectIds);
   const activeShellId = useUIStore((s) => s.activeShellId);
   const terminalFontSize = useUIStore((s) => s.terminalFontSize);
   const terminalTheme = useUIStore((s) => s.terminalTheme);
+  const contextSidebarPinned = useUIStore((s) => s.contextSidebarPinned);
+  const contextSidebarWidth = useUIStore((s) => s.contextSidebarWidth);
   const setWorkspaceState = useUIStore((s) => s.setWorkspaceState);
 
   // Fetch workspace state from server
@@ -51,25 +54,34 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
     const ws = serverState.workspaceState;
     workspaceLog.debug({
       sidebarCollapsed: ws.sidebarCollapsed,
+      sidebarWidth: ws.sidebarWidth,
       expandedProjectIds: ws.expandedProjectIds,
       activeShellId: ws.activeShellId,
       terminalFontSize: ws.terminalFontSize,
       terminalTheme: ws.terminalTheme,
+      contextSidebarPinned: ws.contextSidebarPinned,
+      contextSidebarWidth: ws.contextSidebarWidth,
     }, 'Workspace state loaded');
     setWorkspaceState({
       sidebarCollapsed: ws.sidebarCollapsed,
+      sidebarWidth: ws.sidebarWidth,
       expandedProjectIds: ws.expandedProjectIds,
       activeShellId: ws.activeShellId,
       terminalFontSize: ws.terminalFontSize,
       terminalTheme: ws.terminalTheme,
+      contextSidebarPinned: ws.contextSidebarPinned,
+      contextSidebarWidth: ws.contextSidebarWidth,
     });
     // Record what we loaded so we don't immediately save it back
     lastSavedRef.current = JSON.stringify({
       sidebarCollapsed: ws.sidebarCollapsed,
+      sidebarWidth: ws.sidebarWidth,
       expandedProjectIds: ws.expandedProjectIds,
       activeShellId: ws.activeShellId,
       terminalFontSize: ws.terminalFontSize,
       terminalTheme: ws.terminalTheme,
+      contextSidebarPinned: ws.contextSidebarPinned,
+      contextSidebarWidth: ws.contextSidebarWidth,
     });
   }, [serverState, setWorkspaceState]);
 
@@ -89,10 +101,13 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
 
     const currentState = {
       sidebarCollapsed,
+      sidebarWidth,
       expandedProjectIds,
       activeShellId,
       terminalFontSize,
       terminalTheme,
+      contextSidebarPinned,
+      contextSidebarWidth,
     };
 
     const stateStr = JSON.stringify(currentState);
@@ -113,7 +128,7 @@ export function useWorkspaceSync(): { isLoaded: boolean } {
       lastSavedRef.current = stateStr;
       saveState(currentState);
     }, DEBOUNCE_MS);
-  }, [isAuthenticated, sidebarCollapsed, expandedProjectIds, activeShellId, terminalFontSize, terminalTheme, saveState]);
+  }, [isAuthenticated, sidebarCollapsed, sidebarWidth, expandedProjectIds, activeShellId, terminalFontSize, terminalTheme, contextSidebarPinned, contextSidebarWidth, saveState]);
 
   // Trigger debounced save when state changes
   useEffect(() => {

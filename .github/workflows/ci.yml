@@ -135,8 +135,8 @@ jobs:
         env:
           HUSKY: 0
 
-      - name: Build
-        run: npm run build
+      - name: Build server and client for npm publish
+        run: npm run build:all
 
       - name: Run semantic-release
         env:

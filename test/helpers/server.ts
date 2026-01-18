@@ -11,8 +11,11 @@ import request from 'supertest';
 import { createStorage, type Storage } from '@server/storage/index.js';
 import { AuthService } from '@server/services/auth/AuthService.js';
 import { ProjectService } from '@server/services/project/ProjectService.js';
+import { ProjectMetadataService } from '@server/services/project/ProjectMetadataService.js';
+import { ProjectUrlsService } from '@server/services/project/ProjectUrlsService.js';
 import { ShellService } from '@server/services/shell/ShellService.js';
 import { FilesystemService } from '@server/services/filesystem/FilesystemService.js';
+import { FileTreeService } from '@server/services/filesystem/FileTreeService.js';
 import { WorkspaceStateService } from '@server/services/workspace/WorkspaceStateService.js';
 import { attachAuthService } from '@server/api/middleware/auth.js';
 import { errorHandler, notFoundHandler } from '@server/api/middleware/error.js';
@@ -29,8 +32,11 @@ export interface TestServer {
   storage: Storage;
   authService: AuthService;
   projectService: ProjectService;
+  projectMetadataService: ProjectMetadataService;
+  projectUrlsService: ProjectUrlsService;
   shellService: ShellService;
   filesystemService: FilesystemService;
+  fileTreeService: FileTreeService;
   workspaceStateService: WorkspaceStateService;
   close: () => Promise<void>;
   createTestProject: () => Promise<string>;
@@ -74,12 +80,20 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     shellStore: storage.shells,
   });
 
+  const projectMetadataService = new ProjectMetadataService();
+
+  const projectUrlsService = new ProjectUrlsService({
+    projectUrlsStore: storage.projectUrls,
+  });
+
   const shellService = new ShellService({
     shellStore: storage.shells,
     projectStore: storage.projects,
   });
 
   const filesystemService = new FilesystemService();
+
+  const fileTreeService = new FileTreeService();
 
   const workspaceStateService = new WorkspaceStateService({
     workspaceStateStore: storage.workspaceStates,
@@ -104,8 +118,11 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
   // API routes
   app.use('/api', createApiRouter({
     projectService,
+    projectMetadataService,
+    projectUrlsService,
     shellService,
     filesystemService,
+    fileTreeService,
     workspaceStateService,
   }));
 
@@ -157,8 +174,11 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     storage,
     authService,
     projectService,
+    projectMetadataService,
+    projectUrlsService,
     shellService,
     filesystemService,
+    fileTreeService,
     workspaceStateService,
     login,
     createTestProject,

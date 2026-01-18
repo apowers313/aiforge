@@ -10,6 +10,7 @@ import { ShellStore } from './stores/ShellStore.js';
 import { SessionStore } from './stores/SessionStore.js';
 import { WorkspaceStateStore } from './stores/WorkspaceStateStore.js';
 import { ScrollbackStore } from './stores/ScrollbackStore.js';
+import { ProjectUrlsStore } from './stores/ProjectUrlsStore.js';
 
 export { JsonStore } from './JsonStore.js';
 export { ProjectStore } from './stores/ProjectStore.js';
@@ -17,6 +18,7 @@ export { ShellStore } from './stores/ShellStore.js';
 export { SessionStore } from './stores/SessionStore.js';
 export { WorkspaceStateStore } from './stores/WorkspaceStateStore.js';
 export { ScrollbackStore } from './stores/ScrollbackStore.js';
+export { ProjectUrlsStore } from './stores/ProjectUrlsStore.js';
 
 export interface Storage {
   projects: ProjectStore;
@@ -24,6 +26,7 @@ export interface Storage {
   sessions: SessionStore;
   workspaceStates: WorkspaceStateStore;
   scrollback: ScrollbackStore;
+  projectUrls: ProjectUrlsStore;
 }
 
 /**
@@ -51,6 +54,7 @@ export async function initStorage(): Promise<Storage> {
     sessions: new SessionStore(join(dataDir, 'sessions.json')),
     workspaceStates: new WorkspaceStateStore(join(dataDir, 'workspace-states.json')),
     scrollback: new ScrollbackStore({ directory: join(dataDir, 'scrollback') }),
+    projectUrls: new ProjectUrlsStore(join(dataDir, 'project-urls.json')),
   };
 }
 
@@ -64,5 +68,6 @@ export function createStorage(dataDir: string): Storage {
     sessions: new SessionStore(join(dataDir, 'sessions.json')),
     workspaceStates: new WorkspaceStateStore(join(dataDir, 'workspace-states.json')),
     scrollback: new ScrollbackStore({ directory: join(dataDir, 'scrollback') }),
+    projectUrls: new ProjectUrlsStore(join(dataDir, 'project-urls.json')),
   };
 }

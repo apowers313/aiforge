@@ -1,16 +1,19 @@
 /**
  * Terminal - Real terminal component using xterm.js
+ *
+ * Uses useTerminalSession hook with explicit state machine for session management.
  */
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { Box, Group, Text, Badge, Loader, Center, ActionIcon, Tooltip, Menu, Alert, Button } from '@mantine/core';
-import { IconTerminal2, IconPlus, IconMinus, IconPalette, IconCheck, IconAlertTriangle, IconRefresh } from '@tabler/icons-react';
+import { Box, Group, Text, Badge, Loader, Center, ActionIcon, Tooltip, Menu } from '@mantine/core';
+import { IconTerminal2, IconPlus, IconMinus, IconPalette, IconCheck } from '@tabler/icons-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { useShell, useStartShell } from '@client/hooks/useShells';
-import { useTerminal } from '@client/hooks/useTerminal';
+import { useTerminalSession } from '@client/hooks/useTerminalSession';
 import { useUIStore } from '@client/stores/uiStore';
 import { TERMINAL_THEMES, getTerminalThemeColors } from '@shared/terminalThemes';
+import { ErrorDisplay } from './ErrorDisplay';
+import { ReconnectingOverlay } from './ReconnectingOverlay';
 import { log } from '@client/services/logger';
 import '@xterm/xterm/css/xterm.css';
 
@@ -20,31 +23,32 @@ const MIN_FONT_SIZE = 8;
 const MAX_FONT_SIZE = 32;
 const FONT_SIZE_STEP = 2;
 
+/**
+ * Grace period in ms to ignore automatic xterm escape sequences after scrollback.
+ * These are focus events and cursor key mode responses triggered by scrollback replay.
+ */
+const XTERM_SCROLLBACK_GRACE_MS = 500;
+
 interface TerminalProps {
   shellId: string;
 }
 
-// Debug helper to get elapsed time since terminal switch started
-function getElapsed(): string {
-  const start = (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart;
-  if (!start) return '?.??';
-  return (performance.now() - start).toFixed(2);
-}
-
 export function Terminal({ shellId }: TerminalProps): React.ReactElement {
   termLog.debug({ shellId }, 'Terminal component render');
-  console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Terminal component render start for shellId: ${shellId}`);
-  const shell = useShell(shellId);
-  const startShellMutation = useStartShell();
+
   const [terminalElement, setTerminalElement] = useState<HTMLDivElement | null>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const hasStartedRef = useRef(false);
-  const dataBufferRef = useRef<string[]>([]);
+
+  // Track when scrollback was last received to ignore automatic xterm escape sequences
+  const lastScrollbackTimeRef = useRef<number | null>(null);
 
   // Track applied values to skip redundant updates
   const appliedFontSizeRef = useRef<number | null>(null);
   const appliedThemeRef = useRef<string | null>(null);
+
+  // Track the last scrollback that was written to detect changes
+  const lastWrittenScrollbackRef = useRef<string | null>(null);
 
   // Font size and theme from global store
   const terminalFontSize = useUIStore((s) => s.terminalFontSize);
@@ -62,24 +66,13 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     setTerminalFontSize(newSize);
   }, [terminalFontSize, setTerminalFontSize]);
 
-  // Start shell PTY on mount if not already active
-  useEffect(() => {
-    if (!shell || shell.status === 'active' || hasStartedRef.current || startShellMutation.isPending) {
-      return;
-    }
+  // Handle terminal output data
+  const handleOutput = useCallback((data: string) => {
+    termLog.debug({ bytes: data.length }, 'handleOutput received');
 
-    termLog.info({ shellId, shellName: shell.name }, 'Starting shell PTY');
-    hasStartedRef.current = true;
-    startShellMutation.mutate(shellId);
-  }, [shell, shellId, startShellMutation]);
-
-  // Handle terminal data
-  const handleData = useCallback((data: string) => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData received ${String(data.length)} bytes`);
     const xterm = xtermRef.current;
     if (!xterm) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: xterm not ready, buffering`);
-      dataBufferRef.current.push(data);
+      termLog.debug('handleOutput: xterm not ready, dropping output');
       return;
     }
 
@@ -87,9 +80,8 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     const buffer = xterm.buffer.active;
     const isAtBottom = buffer.viewportY >= buffer.baseY;
 
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: writing to xterm`);
+    termLog.debug({ bytes: data.length, isAtBottom }, 'handleOutput: writing to xterm');
     xterm.write(data);
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - handleData: xterm.write complete`);
 
     // Scroll to bottom if we were at the bottom before the write
     if (isAtBottom) {
@@ -97,106 +89,150 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     }
   }, []);
 
-  // Handle shell status changes
-  const handleStatus = useCallback((status: string, exitCode?: number) => {
-    termLog.info({ shellId, status, exitCode }, 'Shell status changed');
-    if (status === 'exited') {
-      xtermRef.current?.write(`\r\n\x1b[33m[Process exited with code ${String(exitCode ?? 'unknown')}]\x1b[0m\r\n`);
-    }
-  }, [shellId]);
-
-  // Connect to terminal WebSocket
-  const { isConnected, connectionError, write, resize, reconnect } = useTerminal(shellId, {
-    onData: handleData,
-    onStatus: handleStatus,
+  // Session management via useTerminalSession hook
+  const session = useTerminalSession(shellId, {
+    autoOpen: true,
+    onOutput: handleOutput,
   });
 
-  // Store write/resize in refs to avoid recreating xterm when they change
-  const writeRef = useRef(write);
-  const resizeRef = useRef(resize);
+  // Store session actions in refs to avoid recreating xterm when they change
+  const writeRef = useRef(session.write);
+  const resizeRef = useRef(session.resize);
   useEffect(() => {
-    writeRef.current = write;
-    resizeRef.current = resize;
-  }, [write, resize]);
+    writeRef.current = session.write;
+    resizeRef.current = session.resize;
+  }, [session.write, session.resize]);
 
-  // Initialize xterm - depends on terminalElement state (callback ref pattern)
+  // Get current theme colors for backgrounds
+  const currentThemeColors = getTerminalThemeColors(terminalTheme);
+
+  // Initialize xterm when element is available and session is open
   useEffect(() => {
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm init effect running, terminalElement=${String(!!terminalElement)}, xtermRef.current=${String(!!xtermRef.current)}`);
-    if (!terminalElement || xtermRef.current) {
+    if (session.state.status !== 'open') {
       return;
     }
 
-    termLog.info({ shellId, fontSize: terminalFontSize, theme: terminalTheme }, 'Initializing xterm');
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Creating xterm instance`);
-    const themeColors = getTerminalThemeColors(terminalTheme);
-    const xterm = new XTerm({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: terminalFontSize,
-      lineHeight: 1.2,
-      theme: themeColors,
-    });
+    const elementRect = terminalElement?.getBoundingClientRect();
+    termLog.debug({
+      hasElement: !!terminalElement,
+      hasXterm: !!xtermRef.current,
+      elementWidth: elementRect?.width,
+      elementHeight: elementRect?.height,
+    }, 'xterm init effect running');
 
-    const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
-
-    xterm.loadAddon(fitAddon);
-    xterm.loadAddon(webLinksAddon);
-
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm.open() starting`);
-    xterm.open(terminalElement);
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - xterm.open() complete, calling fitAddon.fit()`);
-    fitAddon.fit();
-    console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - fitAddon.fit() complete`);
-
-    // Handle terminal input - use ref to avoid stale closure
-    xterm.onData((data) => {
-      writeRef.current(data);
-    });
-
-    // Handle terminal resize - use ref to avoid stale closure
-    xterm.onResize((size) => {
-      resizeRef.current(size.cols, size.rows);
-    });
-
-    xtermRef.current = xterm;
-    fitAddonRef.current = fitAddon;
-
-    // Flush any buffered data that arrived before xterm was ready
-    if (dataBufferRef.current.length > 0) {
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Flushing ${String(dataBufferRef.current.length)} buffered data chunks`);
-      for (const data of dataBufferRef.current) {
-        xterm.write(data);
-      }
-      dataBufferRef.current = [];
-      xterm.scrollToBottom();
-      console.log(`[TERMINAL_SWITCH] +${getElapsed()}ms - Buffer flush complete`);
+    if (!terminalElement) {
+      return;
     }
 
-    // Track initial applied values to skip redundant updates
-    appliedFontSizeRef.current = terminalFontSize;
-    appliedThemeRef.current = terminalTheme;
+    // Write scrollback helper function
+    const writeScrollbackIfChanged = (xterm: XTerm, currentScrollback: string): void => {
+      if (currentScrollback !== lastWrittenScrollbackRef.current) {
+        termLog.debug({ scrollbackLen: currentScrollback.length }, 'Writing scrollback to xterm');
 
-    // Initial resize notification
-    resizeRef.current(xterm.cols, xterm.rows);
+        // If we had previous scrollback, clear terminal first (reconnect scenario)
+        if (lastWrittenScrollbackRef.current !== null) {
+          xterm.clear();
+        }
 
-    return (): void => {
-      xterm.dispose();
-      xtermRef.current = null;
-      fitAddonRef.current = null;
-      appliedFontSizeRef.current = null;
-      appliedThemeRef.current = null;
-      dataBufferRef.current = [];
+        // Write new scrollback
+        if (currentScrollback) {
+          xterm.write(currentScrollback);
+          xterm.scrollToBottom();
+        }
+
+        lastScrollbackTimeRef.current = Date.now();
+        lastWrittenScrollbackRef.current = currentScrollback;
+      }
     };
-  }, [terminalElement]);
+
+    const currentScrollback = session.state.scrollback;
+
+    // Initialize xterm if not already done
+    if (!xtermRef.current) {
+      termLog.info({ shellId, fontSize: terminalFontSize, theme: terminalTheme }, 'Initializing xterm');
+      const themeColors = getTerminalThemeColors(terminalTheme);
+      const xterm = new XTerm({
+        cursorBlink: true,
+        cursorStyle: 'bar',
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontSize: terminalFontSize,
+        lineHeight: 1.2,
+        theme: themeColors,
+      });
+
+      const fitAddon = new FitAddon();
+      const webLinksAddon = new WebLinksAddon();
+
+      xterm.loadAddon(fitAddon);
+      xterm.loadAddon(webLinksAddon);
+
+      termLog.debug('xterm.open() starting');
+      xterm.open(terminalElement);
+      termLog.debug({ cols: xterm.cols, rows: xterm.rows }, 'xterm.open() complete, calling fitAddon.fit()');
+      fitAddon.fit();
+      termLog.debug({ cols: xterm.cols, rows: xterm.rows }, 'fitAddon.fit() complete');
+
+      // Initialize scrollback grace period
+      lastScrollbackTimeRef.current = Date.now();
+
+      // Handle terminal input - use ref to avoid stale closure
+      xterm.onData((data) => {
+        const timeSinceScrollback = lastScrollbackTimeRef.current ? Date.now() - lastScrollbackTimeRef.current : Infinity;
+        if (timeSinceScrollback < XTERM_SCROLLBACK_GRACE_MS) {
+          termLog.debug({ timeSinceScrollback, dataPreview: data.slice(0, 20) }, 'Ignoring input during scrollback grace period');
+          return;
+        }
+        writeRef.current(data);
+      });
+
+      // Handle terminal resize - use ref to avoid stale closure
+      xterm.onResize((size) => {
+        resizeRef.current(size.cols, size.rows);
+      });
+
+      xtermRef.current = xterm;
+      fitAddonRef.current = fitAddon;
+
+      // Track initial applied values
+      appliedFontSizeRef.current = terminalFontSize;
+      appliedThemeRef.current = terminalTheme;
+
+      // Initial resize notification
+      resizeRef.current(xterm.cols, xterm.rows);
+
+      // Write initial scrollback
+      writeScrollbackIfChanged(xterm, currentScrollback);
+    } else {
+      // xterm already exists, check if scrollback changed
+      writeScrollbackIfChanged(xtermRef.current, currentScrollback);
+    }
+
+    // Cleanup
+    return (): void => {
+      // Don't dispose xterm here - only on full unmount
+    };
+  }, [session.state.status, session.state.status === 'open' ? session.state.scrollback : null, terminalElement, shellId, terminalFontSize, terminalTheme]);
+
+  // Cleanup xterm on unmount
+  useEffect(() => {
+    return (): void => {
+      if (xtermRef.current) {
+        xtermRef.current.dispose();
+        xtermRef.current = null;
+        fitAddonRef.current = null;
+        appliedFontSizeRef.current = null;
+        appliedThemeRef.current = null;
+        lastScrollbackTimeRef.current = null;
+        lastWrittenScrollbackRef.current = null;
+      }
+    };
+  }, []);
 
   // Handle window resize with debouncing
   useEffect(() => {
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const handleResize = (): void => {
-      // Debounce resize handling to prevent rapid consecutive calls
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
       }
@@ -206,15 +242,12 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
         if (!xterm || !fitAddon) return;
 
         fitAddon.fit();
-
-        // Scroll to bottom to ensure cursor is visible after resize
         xterm.scrollToBottom();
       }, 50);
     };
 
     window.addEventListener('resize', handleResize);
 
-    // Also fit when container size might have changed
     const resizeObserver = new ResizeObserver(handleResize);
     if (terminalElement) {
       resizeObserver.observe(terminalElement);
@@ -235,15 +268,12 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     const fitAddon = fitAddonRef.current;
     if (!xterm || !fitAddon) return;
 
-    // Skip if font size hasn't actually changed
     if (appliedFontSizeRef.current === terminalFontSize) return;
 
     termLog.debug({ shellId, fontSize: terminalFontSize }, 'Updating terminal font size');
     appliedFontSizeRef.current = terminalFontSize;
     xterm.options.fontSize = terminalFontSize;
     fitAddon.fit();
-
-    // Scroll to bottom to ensure cursor is visible after font size change
     xterm.scrollToBottom();
   }, [terminalFontSize, shellId]);
 
@@ -252,7 +282,6 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     const xterm = xtermRef.current;
     if (!xterm) return;
 
-    // Skip if theme hasn't actually changed
     if (appliedThemeRef.current === terminalTheme) return;
 
     termLog.debug({ shellId, theme: terminalTheme }, 'Updating terminal theme');
@@ -266,180 +295,180 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     xtermRef.current?.focus();
   }, []);
 
-  if (!shell) {
-    return (
-      <Box
-        style={{
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Text c="dimmed">Shell not found</Text>
-      </Box>
-    );
-  }
+  // Render based on session state
+  switch (session.state.status) {
+    case 'closed':
+      // Brief closed state before opening
+      return (
+        <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
+          <Loader size="lg" color="green" />
+          <Text c="dimmed" ml="md">Initializing...</Text>
+        </Center>
+      );
 
-  const currentThemeColors = getTerminalThemeColors(terminalTheme);
+    case 'opening':
+      return (
+        <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
+          <Loader size="lg" color="green" />
+          <Text c="dimmed" ml="md">Connecting...</Text>
+        </Center>
+      );
 
-  if (startShellMutation.isPending) {
-    return (
-      <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
-        <Loader size="lg" color="green" />
-        <Text c="dimmed" ml="md">Starting shell...</Text>
-      </Center>
-    );
-  }
+    case 'error':
+      return (
+        <ErrorDisplay
+          message={session.state.message}
+          onRetry={session.state.retryable ? session.retry : undefined}
+        />
+      );
 
-  if (startShellMutation.isError) {
-    return (
-      <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
-        <Text c="red">Error: {startShellMutation.error.message}</Text>
-      </Center>
-    );
-  }
-
-  // Connection error with retry option
-  if (connectionError?.type === 'server_unreachable') {
-    return (
-      <Center style={{ height: '100%', backgroundColor: currentThemeColors.background }}>
-        <Alert
-          icon={<IconAlertTriangle size={16} />}
-          title="Connection Error"
-          color="red"
-          variant="filled"
-          style={{ maxWidth: 400 }}
+    case 'reconnecting':
+      // Show terminal content with reconnecting overlay
+      return (
+        <Box
+          data-testid="terminal-container"
+          style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: currentThemeColors.background,
+            position: 'relative',
+          }}
         >
-          <Text size="sm" mb="md">{connectionError.message}</Text>
-          <Button
-            leftSection={<IconRefresh size={14} />}
-            size="sm"
-            variant="white"
-            onClick={reconnect}
+          <ReconnectingOverlay
+            attempt={session.state.attempt}
+            maxAttempts={session.state.maxAttempts}
+          />
+          <Box
+            ref={setTerminalElement}
+            onClick={handleClick}
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+            }}
+          />
+        </Box>
+      );
+
+    case 'open': {
+      const shell = session.state.shell;
+      const statusColor = shell.status === 'active' ? 'green' : shell.status === 'error' ? 'red' : 'gray';
+
+      return (
+        <Box
+          data-testid="terminal-container"
+          style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: currentThemeColors.background,
+          }}
+        >
+          {/* Terminal Header */}
+          <Box
+            style={{
+              borderBottom: '1px solid var(--mantine-color-dark-4)',
+              padding: '8px 16px',
+              backgroundColor: 'var(--mantine-color-dark-7)',
+            }}
           >
-            Retry Connection
-          </Button>
-        </Alert>
-      </Center>
-    );
-  }
-
-  const statusColor = shell.status === 'active' ? 'green' : shell.status === 'error' ? 'red' : 'gray';
-
-  return (
-    <Box
-      data-testid="terminal-container"
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        backgroundColor: currentThemeColors.background,
-      }}
-    >
-      {/* Terminal Header */}
-      <Box
-        style={{
-          borderBottom: '1px solid var(--mantine-color-dark-4)',
-          padding: '8px 16px',
-          backgroundColor: 'var(--mantine-color-dark-7)',
-        }}
-      >
-        <Group justify="space-between">
-          <Group gap="xs">
-            <IconTerminal2 size={16} style={{ color: 'var(--mantine-color-green-4)' }} />
-            <Text size="sm" fw={500}>
-              {shell.name}
-            </Text>
-          </Group>
-          <Group gap="sm">
-            {/* Font size controls */}
-            <Group gap={4}>
-              <Tooltip label="Decrease font size" position="bottom" withArrow>
-                <ActionIcon
-                  size="xs"
-                  variant="subtle"
-                  color="gray"
-                  onClick={decreaseFontSize}
-                  disabled={terminalFontSize <= MIN_FONT_SIZE}
-                >
-                  <IconMinus size={12} />
-                </ActionIcon>
-              </Tooltip>
-              <Text size="xs" c="dimmed" style={{ minWidth: '24px', textAlign: 'center' }}>
-                {terminalFontSize}
-              </Text>
-              <Tooltip label="Increase font size" position="bottom" withArrow>
-                <ActionIcon
-                  size="xs"
-                  variant="subtle"
-                  color="gray"
-                  onClick={increaseFontSize}
-                  disabled={terminalFontSize >= MAX_FONT_SIZE}
-                >
-                  <IconPlus size={12} />
-                </ActionIcon>
-              </Tooltip>
+            <Group justify="space-between">
+              <Group gap="xs">
+                <IconTerminal2 size={16} style={{ color: 'var(--mantine-color-green-4)' }} />
+                <Text size="sm" fw={500}>
+                  {shell.name}
+                </Text>
+              </Group>
+              <Group gap="sm">
+                {/* Font size controls */}
+                <Group gap={4}>
+                  <Tooltip label="Decrease font size" position="bottom" withArrow>
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
+                      color="gray"
+                      onClick={decreaseFontSize}
+                      disabled={terminalFontSize <= MIN_FONT_SIZE}
+                    >
+                      <IconMinus size={12} />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Text size="xs" c="dimmed" style={{ minWidth: '24px', textAlign: 'center' }}>
+                    {terminalFontSize}
+                  </Text>
+                  <Tooltip label="Increase font size" position="bottom" withArrow>
+                    <ActionIcon
+                      size="xs"
+                      variant="subtle"
+                      color="gray"
+                      onClick={increaseFontSize}
+                      disabled={terminalFontSize >= MAX_FONT_SIZE}
+                    >
+                      <IconPlus size={12} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+                {/* Theme selector */}
+                <Menu shadow="md" width={180} position="bottom-end">
+                  <Menu.Target>
+                    <Tooltip label="Terminal theme" position="bottom" withArrow>
+                      <ActionIcon size="xs" variant="subtle" color="gray">
+                        <IconPalette size={14} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label>Terminal Theme</Menu.Label>
+                    {TERMINAL_THEMES.map((theme) => (
+                      <Menu.Item
+                        key={theme.id}
+                        onClick={(): void => { setTerminalTheme(theme.id); }}
+                        leftSection={
+                          <Box
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: 3,
+                              backgroundColor: theme.theme.background,
+                              border: '1px solid var(--mantine-color-dark-4)',
+                            }}
+                          />
+                        }
+                        rightSection={
+                          terminalTheme === theme.id ? <IconCheck size={14} /> : null
+                        }
+                      >
+                        {theme.name}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
+                <Badge size="xs" variant="dot" color="green">
+                  connected
+                </Badge>
+                <Badge size="xs" variant="dot" color={statusColor}>
+                  {shell.status}
+                </Badge>
+                {shell.pid && (
+                  <Text size="xs" c="dimmed">
+                    PID: {shell.pid}
+                  </Text>
+                )}
+              </Group>
             </Group>
-            {/* Theme selector */}
-            <Menu shadow="md" width={180} position="bottom-end">
-              <Menu.Target>
-                <Tooltip label="Terminal theme" position="bottom" withArrow>
-                  <ActionIcon size="xs" variant="subtle" color="gray">
-                    <IconPalette size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Label>Terminal Theme</Menu.Label>
-                {TERMINAL_THEMES.map((theme) => (
-                  <Menu.Item
-                    key={theme.id}
-                    onClick={() => { setTerminalTheme(theme.id); }}
-                    leftSection={
-                      <Box
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: 3,
-                          backgroundColor: theme.theme.background,
-                          border: '1px solid var(--mantine-color-dark-4)',
-                        }}
-                      />
-                    }
-                    rightSection={
-                      terminalTheme === theme.id ? <IconCheck size={14} /> : null
-                    }
-                  >
-                    {theme.name}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
-            <Badge size="xs" variant="dot" color={isConnected ? 'green' : 'yellow'}>
-              {isConnected ? 'connected' : 'connecting'}
-            </Badge>
-            <Badge size="xs" variant="dot" color={statusColor}>
-              {shell.status}
-            </Badge>
-            {shell.pid && (
-              <Text size="xs" c="dimmed">
-                PID: {shell.pid}
-              </Text>
-            )}
-          </Group>
-        </Group>
-      </Box>
+          </Box>
 
-      {/* Terminal Content */}
-      <Box
-        ref={setTerminalElement}
-        onClick={handleClick}
-        style={{
-          flex: 1,
-          overflow: 'hidden',
-        }}
-      />
-    </Box>
-  );
+          {/* Terminal Content */}
+          <Box
+            ref={setTerminalElement}
+            onClick={handleClick}
+            style={{
+              flex: 1,
+              overflow: 'hidden',
+            }}
+          />
+        </Box>
+      );
+    }
+  }
 }

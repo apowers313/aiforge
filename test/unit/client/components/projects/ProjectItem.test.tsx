@@ -45,7 +45,7 @@ describe('ProjectItem', () => {
     expect(screen.getByText('test-project')).toBeInTheDocument();
   });
 
-  it('expands to show shells when clicked', async () => {
+  it('expands to show shells when chevron clicked', async () => {
     const user = userEvent.setup();
 
     // Mock getShells for this project
@@ -57,14 +57,34 @@ describe('ProjectItem', () => {
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
-    // Click to expand
-    const projectButton = screen.getByText('test-project').closest('button');
-    if (projectButton) {
-      await user.click(projectButton);
-    }
+    // Click chevron to expand
+    const chevronButton = screen.getByTestId('project-chevron');
+    await user.click(chevronButton);
 
     // Project should be expanded in UI store
     expect(useUIStore.getState().expandedProjectIds).toContain('proj-1');
+  });
+
+  it('opens context sidebar when project name clicked', async () => {
+    const user = userEvent.setup();
+
+    // Mock getShells for this project
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ shells: [] }),
+    });
+
+    renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+    // Click project name to open context sidebar
+    const nameButton = screen.getByTestId('project-name');
+    await user.click(nameButton);
+
+    // Context sidebar should be open with project context
+    expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+    expect(useUIStore.getState().selectedContextType).toBe('project');
+    expect(useUIStore.getState().selectedContextId).toBe('proj-1');
   });
 
   // Regression test: Project deletion must call the API

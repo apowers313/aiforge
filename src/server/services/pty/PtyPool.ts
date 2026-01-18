@@ -98,8 +98,12 @@ export class PtyPool extends EventEmitter {
       this.emit('session:exited', id, exitCode);
     });
 
-    this._manager.on('session:activity', (id: string) => {
-      this.emit('session:activity', id);
+    this._manager.on('session:input', (id: string) => {
+      this.emit('session:input', id);
+    });
+
+    this._manager.on('session:output', (id: string) => {
+      this.emit('session:output', id);
     });
 
     // Forward events from daemon manager if enabled
@@ -116,8 +120,12 @@ export class PtyPool extends EventEmitter {
         this.emit('session:exited', id, exitCode);
       });
 
-      this._daemonManager.on('session:activity', (id: string) => {
-        this.emit('session:activity', id);
+      this._daemonManager.on('session:input', (id: string) => {
+        this.emit('session:input', id);
+      });
+
+      this._daemonManager.on('session:output', (id: string) => {
+        this.emit('session:output', id);
       });
     }
   }

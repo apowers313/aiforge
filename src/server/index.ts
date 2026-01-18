@@ -3,7 +3,11 @@
  * Express server with REST API for projects, shells, and authentication
  * WebSocket server for real-time terminal I/O
  */
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -12,8 +16,12 @@ import { logger } from './utils/logger.js';
 import { initStorage, type Storage } from './storage/index.js';
 import { AuthService } from './services/auth/AuthService.js';
 import { ProjectService } from './services/project/ProjectService.js';
+import { ProjectMetadataService } from './services/project/ProjectMetadataService.js';
+import { ProjectUrlsService } from './services/project/ProjectUrlsService.js';
 import { ShellService } from './services/shell/ShellService.js';
+import { ShellSessionManager } from './services/shell/ShellSessionManager.js';
 import { FilesystemService } from './services/filesystem/FilesystemService.js';
+import { FileTreeService } from './services/filesystem/FileTreeService.js';
 import { WorkspaceStateService } from './services/workspace/WorkspaceStateService.js';
 import { PtyPool } from './services/pty/index.js';
 import { attachAuthService } from './api/middleware/auth.js';
@@ -26,11 +34,13 @@ const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 interface AppResult {
   app: Express;
-  server: HttpServer;
+  server: HttpServer | HttpsServer;
   config: ServerConfig;
   storage: Storage;
   ptyPool: PtyPool;
   shellService: ShellService;
+  sessionManager: ShellSessionManager;
+  isHttps: boolean;
 }
 
 export async function createApp(): Promise<AppResult> {
@@ -58,13 +68,27 @@ export async function createApp(): Promise<AppResult> {
     shellStore: storage.shells,
   });
 
+  const projectMetadataService = new ProjectMetadataService();
+
+  const projectUrlsService = new ProjectUrlsService({
+    projectUrlsStore: storage.projectUrls,
+  });
+
   const shellService = new ShellService({
     shellStore: storage.shells,
     projectStore: storage.projects,
     ptyPool,
   });
 
+  // Initialize ShellSessionManager for terminal session orchestration
+  const sessionManager = new ShellSessionManager({
+    ptyPool,
+    shellStore: storage.shells,
+  });
+
   const filesystemService = new FilesystemService();
+
+  const fileTreeService = new FileTreeService();
 
   const workspaceStateService = new WorkspaceStateService({
     workspaceStateStore: storage.workspaceStates,
@@ -89,28 +113,69 @@ export async function createApp(): Promise<AppResult> {
   // API routes
   app.use('/api', createApiRouter({
     projectService,
+    projectMetadataService,
+    projectUrlsService,
     shellService,
     filesystemService,
+    fileTreeService,
     workspaceStateService,
   }));
 
-  // Error handling
+  // Serve static frontend assets in production
+  // The client build outputs to dist/client, which is sibling to dist/server
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const clientDistPath = join(__dirname, '..', '..', 'client');
+
+  if (existsSync(clientDistPath)) {
+    // Serve static files from the client build directory
+    app.use(express.static(clientDistPath));
+
+    // For SPA routing: serve index.html for any non-API, non-WebSocket routes
+    // Express 5 requires named parameter or /* pattern instead of bare *
+    app.get('/{*splat}', (req, res, next) => {
+      // Skip API and WebSocket paths
+      if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
+        next();
+        return;
+      }
+      const indexPath = join(clientDistPath, 'index.html');
+      if (existsSync(indexPath)) {
+        res.sendFile(indexPath);
+        return;
+      }
+      next();
+    });
+  }
+
+  // Error handling (must be after static file serving)
   app.use(notFoundHandler);
   app.use(errorHandler);
 
-  // Create HTTP server for both Express and WebSocket
-  const server = createServer(app);
+  // Create HTTP or HTTPS server based on config
+  const { httpsCert, httpsKey } = config;
+  const isHttps = !!(httpsCert && httpsKey);
+  let server: HttpServer | HttpsServer;
 
-  return { app, server, config, storage, ptyPool, shellService };
+  if (httpsCert && httpsKey) {
+    const httpsOptions = {
+      cert: readFileSync(httpsCert),
+      key: readFileSync(httpsKey),
+    };
+    server = createHttpsServer(httpsOptions, app);
+  } else {
+    server = createHttpServer(app);
+  }
+
+  return { app, server, config, storage, ptyPool, shellService, sessionManager, isHttps };
 }
 
 export async function startServer(): Promise<void> {
-  const { server, config, ptyPool, shellService } = await createApp();
+  const { server, config, shellService, sessionManager, isHttps } = await createApp();
 
   // Create WebSocket server for terminal I/O
   createWebSocketServer({
     server,
-    ptyPool,
+    sessionManager,
     path: '/ws/terminal',
   });
 
@@ -123,13 +188,14 @@ export async function startServer(): Promise<void> {
     logger.info({ count: reconnected }, 'Reconnected to persistent shell daemons');
   }
 
-  // Cleanup orphaned PTY sessions on startup
-  void shellService.cleanupOrphans();
+  // Start reconciliation loop (30 second interval)
+  sessionManager.startReconciliationLoop(30000);
 
   // Handle graceful shutdown
   const shutdown = (): void => {
     logger.info('Shutting down server...');
     setWebSocketReady(false);
+    sessionManager.shutdown();
     shellService.shutdown();
     server.close(() => {
       logger.info('Server stopped');
@@ -141,8 +207,11 @@ export async function startServer(): Promise<void> {
   process.on('SIGINT', shutdown);
 
   server.listen(config.port, config.host, () => {
-    logger.info({ port: config.port, host: config.host }, 'AIForge server started');
-    logger.info({ path: '/ws/terminal' }, 'WebSocket server ready');
+    const protocol = isHttps ? 'https' : 'http';
+    const wsProtocol = isHttps ? 'wss' : 'ws';
+    const url = `${protocol}://${config.host}:${String(config.port)}`;
+    logger.info({ port: config.port, host: config.host, protocol, url }, 'AIForge server started');
+    logger.info({ path: '/ws/terminal', protocol: wsProtocol }, 'WebSocket server ready');
 
     if (!config.authGuid) {
       logger.warn('No auth GUID configured. Run "npm run generate-guid" to create one.');

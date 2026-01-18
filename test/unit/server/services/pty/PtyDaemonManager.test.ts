@@ -338,7 +338,7 @@ describe('PtyDaemonManager', () => {
       }
     });
 
-    it('emits session:activity on data', async () => {
+    it('emits session:output on data', async () => {
       mockServer = await new Promise<Server>((resolve, reject) => {
         const server = createServer((socket) => {
           serverSocket = socket;
@@ -349,16 +349,16 @@ describe('PtyDaemonManager', () => {
       });
 
       const manager = new PtyDaemonManager();
-      const activityHandler = vi.fn();
-      manager.on('session:activity', activityHandler);
+      const outputHandler = vi.fn();
+      manager.on('session:output', outputHandler);
 
       const client = await manager.attach(testShellId, '/test/cwd');
 
-      // Simulate data from daemon
+      // Simulate data from daemon (output from PTY)
       serverSocket?.write(encodeMessage({ type: 'data', data: 'output' }));
       await new Promise((resolve) => { setTimeout(resolve, 50); });
 
-      expect(activityHandler).toHaveBeenCalledWith(testShellId);
+      expect(outputHandler).toHaveBeenCalledWith(testShellId);
       client.dispose();
     });
 

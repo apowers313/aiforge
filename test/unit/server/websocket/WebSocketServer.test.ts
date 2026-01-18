@@ -55,12 +55,18 @@ vi.mock('@server/websocket/handlers/terminal.js', () => ({
 // Mock HTTP server
 class MockHttpServer extends EventEmitter {}
 
-// Mock PtyPool
-const mockPtyPool = {
-  spawn: vi.fn(),
-  get: vi.fn(),
-  kill: vi.fn(),
-  scrollbackStore: undefined,
+// Mock SessionManager
+const mockSessionManager = {
+  openSession: vi.fn(),
+  closeSession: vi.fn(),
+  getSession: vi.fn(),
+  getSessionState: vi.fn(),
+  reconcile: vi.fn(),
+  startReconciliationLoop: vi.fn(),
+  stopReconciliationLoop: vi.fn(),
+  shutdown: vi.fn(),
+  on: vi.fn(),
+  emit: vi.fn(),
 };
 
 describe('createWebSocketServer', () => {
@@ -76,7 +82,7 @@ describe('createWebSocketServer', () => {
 
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     expect(WebSocketServer).toHaveBeenCalledWith({
@@ -90,7 +96,7 @@ describe('createWebSocketServer', () => {
 
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
       path: '/custom/path',
     });
 
@@ -103,7 +109,7 @@ describe('createWebSocketServer', () => {
   it('starts heartbeat manager', () => {
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     expect(mockHeartbeatStart).toHaveBeenCalled();
@@ -113,7 +119,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     // Get the actual MockWebSocketServer instance
@@ -133,7 +139,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -153,7 +159,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -174,7 +180,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -191,7 +197,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -211,7 +217,7 @@ describe('createWebSocketServer', () => {
 
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -228,7 +234,7 @@ describe('createWebSocketServer', () => {
     const { WebSocketServer } = await import('ws');
     createWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
@@ -249,7 +255,7 @@ describe('TerminalWebSocketServer', () => {
   it('creates instance with options', () => {
     const wsServer = new TerminalWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     expect(wsServer.wss).toBeDefined();
@@ -258,7 +264,7 @@ describe('TerminalWebSocketServer', () => {
   it('starts heartbeat', () => {
     const wsServer = new TerminalWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     wsServer.start();
@@ -269,7 +275,7 @@ describe('TerminalWebSocketServer', () => {
   it('stops heartbeat and closes server', () => {
     const wsServer = new TerminalWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     wsServer.stop();
@@ -282,7 +288,7 @@ describe('TerminalWebSocketServer', () => {
 
     const wsServer = new TerminalWebSocketServer({
       server: mockServer as unknown as Parameters<typeof createWebSocketServer>[0]['server'],
-      ptyPool: mockPtyPool as unknown as Parameters<typeof createWebSocketServer>[0]['ptyPool'],
+      sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
     // Get the actual MockWebSocketServer instance (from latest call)

@@ -202,20 +202,21 @@ export class PtyDaemonManager extends EventEmitter {
    * Set up event handlers for a client
    */
   private _setupClientEvents(client: PtyDaemonClient, shellId: string): void {
-    // Handle data events - write to scrollback and emit activity
+    // Handle data events - write to scrollback and emit separate input/output events
+    // This allows ShellService to distinguish input from output for activity tracking
     client.on('data', (data: string) => {
       // Write to scrollback store for replay
       if (this._scrollbackStore) {
         this._scrollbackStore.append(shellId, 'output', data);
       }
-      this.emit('session:activity', shellId);
+      this.emit('session:output', shellId);
     });
     client.on('input', (data: string) => {
       // Write input to scrollback store
       if (this._scrollbackStore) {
         this._scrollbackStore.append(shellId, 'input', data);
       }
-      this.emit('session:activity', shellId);
+      this.emit('session:input', shellId);
     });
 
     // Handle exit

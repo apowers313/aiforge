@@ -75,18 +75,8 @@ router.post('/projects/:projectId/shells', validateParams(ProjectIdParamsSchema)
 
     const { projectId } = req.params as ProjectIdParams;
     const { name, type } = req.body as CreateShellBody;
-    let shell = await req.shellService.create(projectId, name, type);
-
-    // Auto-start the shell after creation (if PTY pool is configured)
-    try {
-      shell = await req.shellService.start(shell.id);
-    } catch (startErr) {
-      // If PTY pool is not configured, just return the created shell without starting
-      // The shell will have status 'inactive' until explicitly started
-      if (!(startErr instanceof Error && startErr.message === 'PTY pool not configured')) {
-        throw startErr;
-      }
-    }
+    // Create shell in inactive state - client opens via WebSocket session.open
+    const shell = await req.shellService.create(projectId, name, type);
     res.status(201).json({ shell });
   } catch (err) {
     if (err instanceof Error && err.message === 'Project not found') {
@@ -175,34 +165,6 @@ router.patch('/shells/:id', validateParams(ShellIdParamsSchema), validateBody(Up
 });
 
 /**
- * POST /api/shells/:id/start
- * Start a shell (spawn PTY process)
- */
-router.post('/shells/:id/start', validateParams(ShellIdParamsSchema), async (req, res, next) => {
-  try {
-    if (!req.shellService) {
-      throw ApiError.internal('Shell service not configured');
-    }
-
-    const { id } = req.params as ShellIdParams;
-    const shell = await req.shellService.start(id);
-    res.json({ shell });
-  } catch (err) {
-    if (err instanceof Error) {
-      if (err.message === 'Shell not found') {
-        next(ApiError.notFound(err.message));
-        return;
-      }
-      if (err.message === 'PTY pool not configured') {
-        next(ApiError.internal(err.message));
-        return;
-      }
-    }
-    next(err);
-  }
-});
-
-/**
  * POST /api/shells/:id/stop
  * Stop a shell (kill PTY process)
  */
@@ -229,7 +191,7 @@ router.post('/shells/:id/stop', validateParams(ShellIdParamsSchema), async (req,
 
 /**
  * POST /api/shells/:id/restart
- * Restart a shell (stop then start PTY process)
+ * Restart a shell (stops PTY process - client re-opens via WebSocket session.open)
  */
 router.post('/shells/:id/restart', validateParams(ShellIdParamsSchema), async (req, res, next) => {
   try {
@@ -239,24 +201,16 @@ router.post('/shells/:id/restart', validateParams(ShellIdParamsSchema), async (r
 
     const { id } = req.params as ShellIdParams;
 
-    // Stop the shell first (ignore if already stopped)
-    await req.shellService.stop(id).catch(() => {
-      // Shell might already be stopped, that's OK
-    });
-
-    // Start it again
-    const shell = await req.shellService.start(id);
+    // Stop the shell (client re-opens via WebSocket session.open message)
+    const shell = await req.shellService.stop(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
     res.json({ shell });
   } catch (err) {
-    if (err instanceof Error) {
-      if (err.message === 'Shell not found') {
-        next(ApiError.notFound(err.message));
-        return;
-      }
-      if (err.message === 'PTY pool not configured') {
-        next(ApiError.internal(err.message));
-        return;
-      }
+    if (err instanceof Error && err.message === 'PTY pool not configured') {
+      next(ApiError.internal(err.message));
+      return;
     }
     next(err);
   }
