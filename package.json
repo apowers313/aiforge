@@ -1,6 +1,6 @@
 {
   "name": "aiforge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A web-based IDE for 100% agentic coding - manage AI agents through terminals, not files",
   "main": "dist/server/server/index.js",
   "types": "dist/server/server/index.d.ts",
