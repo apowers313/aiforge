@@ -19,6 +19,7 @@ import { ProjectService } from './services/project/ProjectService.js';
 import { ProjectMetadataService } from './services/project/ProjectMetadataService.js';
 import { ProjectUrlsService } from './services/project/ProjectUrlsService.js';
 import { ShellService } from './services/shell/ShellService.js';
+import { ShellContextService } from './services/shell/ShellContextService.js';
 import { ShellSessionManager } from './services/shell/ShellSessionManager.js';
 import { FilesystemService } from './services/filesystem/FilesystemService.js';
 import { FileTreeService } from './services/filesystem/FileTreeService.js';
@@ -80,6 +81,10 @@ export async function createApp(): Promise<AppResult> {
     ptyPool,
   });
 
+  const shellContextService = new ShellContextService({
+    shellContextStore: storage.shellContext,
+  });
+
   // Initialize ShellSessionManager for terminal session orchestration
   const sessionManager = new ShellSessionManager({
     ptyPool,
@@ -116,6 +121,7 @@ export async function createApp(): Promise<AppResult> {
     projectMetadataService,
     projectUrlsService,
     shellService,
+    shellContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,

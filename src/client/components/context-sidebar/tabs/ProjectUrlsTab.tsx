@@ -8,6 +8,7 @@ import { useProjectMetadata } from '@client/hooks/useProjectMetadata';
 import { useProjectUrls } from '@client/hooks/useProjectUrls';
 import { UrlItem, type AutoDetectedUrl } from '../common/UrlItem';
 import { AddUrlModal } from '../common/AddUrlModal';
+import type { CustomUrl } from '@shared/types';
 
 interface ProjectUrlsTabProps {
   projectId: string;
@@ -15,10 +16,11 @@ interface ProjectUrlsTabProps {
 
 export function ProjectUrlsTab({ projectId }: ProjectUrlsTabProps): React.ReactElement {
   const [modalOpened, setModalOpened] = useState(false);
+  const [editingUrl, setEditingUrl] = useState<CustomUrl | null>(null);
   const [deletingUrlId, setDeletingUrlId] = useState<string | null>(null);
 
   const { metadata, isLoading: isLoadingMetadata, isError: isMetadataError } = useProjectMetadata(projectId);
-  const { urls, isLoading: isLoadingUrls, isError: isUrlsError, addUrl, deleteUrl, isAdding } = useProjectUrls(projectId);
+  const { urls, isLoading: isLoadingUrls, isError: isUrlsError, addUrl, updateUrl, deleteUrl, isAdding, isUpdating } = useProjectUrls(projectId);
 
   const isLoading = isLoadingMetadata || isLoadingUrls;
   const isError = isMetadataError || isUrlsError;
@@ -74,7 +76,28 @@ export function ProjectUrlsTab({ projectId }: ProjectUrlsTabProps): React.ReactE
   }, [metadata]);
 
   const handleAddUrl = async (name: string, url: string): Promise<void> => {
-    await addUrl(name, url);
+    if (editingUrl) {
+      // Update existing URL
+      await updateUrl(editingUrl.id, { name, url });
+    } else {
+      // Add new URL
+      await addUrl(name, url);
+    }
+  };
+
+  const handleEditUrl = (url: CustomUrl): void => {
+    setEditingUrl(url);
+    setModalOpened(true);
+  };
+
+  const handleCloseModal = (): void => {
+    setModalOpened(false);
+    setEditingUrl(null);
+  };
+
+  const handleOpenAddModal = (): void => {
+    setEditingUrl(null);
+    setModalOpened(true);
   };
 
   const handleDeleteUrl = async (urlId: string): Promise<void> => {
@@ -134,7 +157,7 @@ export function ProjectUrlsTab({ projectId }: ProjectUrlsTabProps): React.ReactE
           variant="subtle"
           color="blue"
           size="sm"
-          onClick={() => { setModalOpened(true); }}
+          onClick={handleOpenAddModal}
           title="Add custom URL"
           data-testid="add-url-button"
         >
@@ -148,6 +171,7 @@ export function ProjectUrlsTab({ projectId }: ProjectUrlsTabProps): React.ReactE
           <UrlItem
             key={url.id}
             url={url}
+            onEdit={handleEditUrl}
             onDelete={(id) => { void handleDeleteUrl(id); }}
             isDeleting={deletingUrlId === url.id}
           />
@@ -165,12 +189,15 @@ export function ProjectUrlsTab({ projectId }: ProjectUrlsTabProps): React.ReactE
         </Text>
       )}
 
-      {/* Add URL Modal */}
+      {/* Add/Edit URL Modal */}
       <AddUrlModal
         opened={modalOpened}
-        onClose={() => { setModalOpened(false); }}
+        onClose={handleCloseModal}
         onSubmit={handleAddUrl}
-        isSubmitting={isAdding}
+        isSubmitting={isAdding || isUpdating}
+        isEditMode={editingUrl !== null}
+        initialName={editingUrl?.name ?? ''}
+        initialUrl={editingUrl?.url ?? ''}
       />
     </Stack>
   );

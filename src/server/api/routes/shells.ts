@@ -8,11 +8,13 @@ import { validateBody, validateParams } from '../middleware/validation.js';
 import { requireAuth } from '../middleware/auth.js';
 import { ApiError } from '../middleware/error.js';
 import type { ShellService } from '../../services/shell/ShellService.js';
+import type { ShellContextService } from '../../services/shell/ShellContextService.js';
 
-// Extend Express Request to include shell service
+// Extend Express Request to include shell service and shell context service
 declare module 'express-serve-static-core' {
   interface Request {
     shellService?: ShellService;
+    shellContextService?: ShellContextService;
   }
 }
 
@@ -40,10 +42,37 @@ const ShellIdParamsSchema = z.object({
   id: z.string().uuid('Invalid shell ID'),
 });
 
+const TodoIdParamsSchema = z.object({
+  id: z.string().uuid('Invalid shell ID'),
+  todoId: z.string().uuid('Invalid todo ID'),
+});
+
+const CreateTodoSchema = z.object({
+  text: z.string().min(1, 'TODO text is required').max(500),
+});
+
+const UpdateTodoSchema = z.object({
+  text: z.string().min(1).max(500).optional(),
+  completed: z.boolean().optional(),
+});
+
+const UpdateNotesSchema = z.object({
+  notes: z.string().max(50000), // Allow empty notes
+});
+
+const ReorderTodosSchema = z.object({
+  todoIds: z.array(z.string()),
+});
+
 type CreateShellBody = z.infer<typeof CreateShellSchema>;
 type UpdateShellBody = z.infer<typeof UpdateShellSchema>;
 type ProjectIdParams = z.infer<typeof ProjectIdParamsSchema>;
 type ShellIdParams = z.infer<typeof ShellIdParamsSchema>;
+type TodoIdParams = z.infer<typeof TodoIdParamsSchema>;
+type CreateTodoBody = z.infer<typeof CreateTodoSchema>;
+type UpdateTodoBody = z.infer<typeof UpdateTodoSchema>;
+type UpdateNotesBody = z.infer<typeof UpdateNotesSchema>;
+type ReorderTodosBody = z.infer<typeof ReorderTodosSchema>;
 
 /**
  * GET /api/projects/:projectId/shells
@@ -216,12 +245,247 @@ router.post('/shells/:id/restart', validateParams(ShellIdParamsSchema), async (r
   }
 });
 
+// =============================================================================
+// Shell Context Routes (TODOs and Notes)
+// =============================================================================
+
+/**
+ * GET /api/shells/:id/context
+ * Get shell context (todos and notes)
+ */
+router.get('/shells/:id/context', validateParams(ShellIdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id } = req.params as ShellIdParams;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    const context = await req.shellContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/shells/:id/todos
+ * Add a TODO to a shell
+ */
+router.post('/shells/:id/todos', validateParams(ShellIdParamsSchema), validateBody(CreateTodoSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id } = req.params as ShellIdParams;
+    const { text } = req.body as CreateTodoBody;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    const todo = await req.shellContextService.addTodo(id, text);
+    res.status(201).json(todo);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/shells/:id/todos/clear-completed
+ * Clear all completed TODOs
+ * NOTE: Must be before :todoId routes to avoid matching
+ */
+router.post('/shells/:id/todos/clear-completed', validateParams(ShellIdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id } = req.params as ShellIdParams;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    const cleared = await req.shellContextService.clearCompleted(id);
+    res.json({ cleared });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/shells/:id/todos/reorder
+ * Reorder TODOs
+ * NOTE: Must be before :todoId routes to avoid matching
+ */
+router.put('/shells/:id/todos/reorder', validateParams(ShellIdParamsSchema), validateBody(ReorderTodosSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id } = req.params as ShellIdParams;
+    const { todoIds } = req.body as ReorderTodosBody;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    await req.shellContextService.reorderTodos(id, todoIds);
+    const context = await req.shellContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/shells/:id/todos/:todoId
+ * Update a TODO
+ */
+router.put('/shells/:id/todos/:todoId', validateParams(TodoIdParamsSchema), validateBody(UpdateTodoSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id, todoId } = req.params as TodoIdParams;
+    const body = req.body as UpdateTodoBody;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    // Build updates object with only defined values (filter out undefined)
+    const updates: { text?: string; completed?: boolean } = {};
+    if (body.text !== undefined) {
+      updates.text = body.text;
+    }
+    if (body.completed !== undefined) {
+      updates.completed = body.completed;
+    }
+
+    const todo = await req.shellContextService.updateTodo(id, todoId, updates);
+    if (!todo) {
+      throw ApiError.notFound('TODO not found');
+    }
+
+    res.json(todo);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/shells/:id/todos/:todoId
+ * Delete a TODO
+ */
+router.delete('/shells/:id/todos/:todoId', validateParams(TodoIdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id, todoId } = req.params as TodoIdParams;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    const deleted = await req.shellContextService.deleteTodo(id, todoId);
+    if (!deleted) {
+      throw ApiError.notFound('TODO not found');
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/shells/:id/notes
+ * Update shell notes
+ */
+router.patch('/shells/:id/notes', validateParams(ShellIdParamsSchema), validateBody(UpdateNotesSchema), async (req, res, next) => {
+  try {
+    if (!req.shellService) {
+      throw ApiError.internal('Shell service not configured');
+    }
+    if (!req.shellContextService) {
+      throw ApiError.internal('Shell context service not configured');
+    }
+
+    const { id } = req.params as ShellIdParams;
+    const { notes } = req.body as UpdateNotesBody;
+
+    // Verify shell exists
+    const shell = await req.shellService.getById(id);
+    if (!shell) {
+      throw ApiError.notFound('Shell not found');
+    }
+
+    await req.shellContextService.updateNotes(id, notes);
+    const context = await req.shellContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
 /**
  * Middleware to attach shell service
  */
 export function attachShellService(shellService: ShellService): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction): void => {
     req.shellService = shellService;
+    next();
+  };
+}
+
+/**
+ * Middleware to attach shell context service
+ */
+export function attachShellContextService(shellContextService: ShellContextService): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    req.shellContextService = shellContextService;
     next();
   };
 }

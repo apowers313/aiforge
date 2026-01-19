@@ -2,7 +2,7 @@
  * UrlItem - Single URL row in the URLs tab
  */
 import { ActionIcon, Group, Text, Anchor, ThemeIcon } from '@mantine/core';
-import { IconExternalLink, IconTrash, IconBrandGithub, IconBrandNpm, IconRun, IconLink } from '@tabler/icons-react';
+import { IconExternalLink, IconTrash, IconPencil, IconBrandGithub, IconBrandNpm, IconRun, IconLink } from '@tabler/icons-react';
 import type { CustomUrl } from '@shared/types';
 
 export interface AutoDetectedUrl {
@@ -16,6 +16,7 @@ export interface AutoDetectedUrl {
 interface UrlItemProps {
   url: CustomUrl | AutoDetectedUrl;
   onDelete?: (id: string) => void;
+  onEdit?: (url: CustomUrl) => void;
   isDeleting?: boolean;
 }
 
@@ -45,7 +46,7 @@ function getIconColor(type: string): string {
   }
 }
 
-export function UrlItem({ url, onDelete, isDeleting }: UrlItemProps): React.ReactElement {
+export function UrlItem({ url, onDelete, onEdit, isDeleting }: UrlItemProps): React.ReactElement {
   const isAutoDetected = 'isAutoDetected' in url && url.isAutoDetected;
   const type = 'type' in url ? url.type : 'other';
 
@@ -84,17 +85,34 @@ export function UrlItem({ url, onDelete, isDeleting }: UrlItemProps): React.Reac
         </Anchor>
       </Group>
 
-      {!isAutoDetected && onDelete && (
-        <ActionIcon
-          variant="subtle"
-          color="red"
-          size="sm"
-          onClick={() => { onDelete(url.id); }}
-          loading={isDeleting}
-          title="Delete URL"
-        >
-          <IconTrash size={14} />
-        </ActionIcon>
+      {!isAutoDetected && (
+        <Group gap={4}>
+          {onEdit && (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              onClick={() => { onEdit(url as CustomUrl); }}
+              title="Edit URL"
+              data-testid="edit-url-button"
+            >
+              <IconPencil size={14} />
+            </ActionIcon>
+          )}
+          {onDelete && (
+            <ActionIcon
+              variant="subtle"
+              color="red"
+              size="sm"
+              onClick={() => { onDelete(url.id); }}
+              loading={isDeleting}
+              title="Delete URL"
+              data-testid="delete-url-button"
+            >
+              <IconTrash size={14} />
+            </ActionIcon>
+          )}
+        </Group>
       )}
     </Group>
   );

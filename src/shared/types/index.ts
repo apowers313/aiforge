@@ -178,6 +178,7 @@ export interface TodoItem {
   id: string;
   text: string;
   completed: boolean;
+  order: number; // Sort order (lower = higher in list)
   createdAt: string; // ISO 8601 date string
   completedAt: string | null; // ISO 8601 date string or null
 }

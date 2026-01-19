@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ContextSidebar } from '@client/components/context-sidebar/ContextSidebar';
 import { useUIStore } from '@client/stores/uiStore';
 import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
 import type { QueryClient } from '@tanstack/react-query';
+
+// Mock fetch globally
+const mockFetch = vi.fn();
 
 describe('ContextSidebar', () => {
   let queryClient: QueryClient;
@@ -119,5 +122,118 @@ describe('ContextSidebar', () => {
 
     const sidebar = screen.getByTestId('context-sidebar');
     expect(sidebar).toHaveStyle({ position: 'relative' });
+  });
+
+  describe('click-outside behavior with portaled elements', () => {
+    beforeEach(() => {
+      global.fetch = mockFetch;
+      mockFetch.mockReset();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('does not close sidebar when clicking on a menu dropdown (regression test)', async () => {
+      const user = userEvent.setup();
+
+      // Mock the shell context API to return a todo
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            todos: [
+              {
+                id: 'todo-1',
+                text: 'Test task',
+                completed: false,
+                order: 0,
+                createdAt: new Date().toISOString(),
+                completedAt: null,
+              },
+            ],
+            notes: '',
+          }),
+      });
+
+      // Open sidebar in unpinned mode (overlay)
+      useUIStore.getState().openContextSidebar('shell', 'shell-1');
+      expect(useUIStore.getState().contextSidebarPinned).toBe(false);
+
+      renderWithProviders(<ContextSidebar />, queryClient);
+
+      // Wait for the todo to load
+      await waitFor(() => {
+        expect(screen.getByTestId('todo-item-todo-1')).toBeInTheDocument();
+      });
+
+      // Click on the menu button
+      const todoItem = screen.getByTestId('todo-item-todo-1');
+      const menuButton = within(todoItem).getByTestId('todo-menu-button');
+      await user.click(menuButton);
+
+      // Wait for menu to open
+      await waitFor(() => {
+        expect(screen.getByTestId('delete-todo-menu-item')).toBeInTheDocument();
+      });
+
+      // Sidebar should still be open
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+      expect(screen.getByTestId('context-sidebar')).toBeInTheDocument();
+
+      // Mock delete response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+      });
+
+      // Mock refetch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ todos: [], notes: '' }),
+      });
+
+      // Click the delete menu item
+      await user.click(screen.getByTestId('delete-todo-menu-item'));
+
+      // Sidebar should still be open after clicking menu item
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+
+      // Delete should have been called
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          '/api/shells/shell-1/todos/todo-1',
+          expect.objectContaining({ method: 'DELETE' }),
+        );
+      });
+    });
+
+    it('still closes sidebar when clicking truly outside', async () => {
+      const user = userEvent.setup();
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ todos: [], notes: '' }),
+      });
+
+      useUIStore.getState().openContextSidebar('shell', 'shell-1');
+      renderWithProviders(
+        <div>
+          <div data-testid="outside-element">Outside</div>
+          <ContextSidebar />
+        </div>,
+        queryClient,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('context-sidebar')).toBeInTheDocument();
+      });
+
+      // Click outside the sidebar
+      await user.click(screen.getByTestId('outside-element'));
+
+      // Sidebar should close
+      expect(useUIStore.getState().contextSidebarOpen).toBe(false);
+    });
   });
 });

@@ -14,6 +14,7 @@ import { ProjectService } from '@server/services/project/ProjectService.js';
 import { ProjectMetadataService } from '@server/services/project/ProjectMetadataService.js';
 import { ProjectUrlsService } from '@server/services/project/ProjectUrlsService.js';
 import { ShellService } from '@server/services/shell/ShellService.js';
+import { ShellContextService } from '@server/services/shell/ShellContextService.js';
 import { FilesystemService } from '@server/services/filesystem/FilesystemService.js';
 import { FileTreeService } from '@server/services/filesystem/FileTreeService.js';
 import { WorkspaceStateService } from '@server/services/workspace/WorkspaceStateService.js';
@@ -35,6 +36,7 @@ export interface TestServer {
   projectMetadataService: ProjectMetadataService;
   projectUrlsService: ProjectUrlsService;
   shellService: ShellService;
+  shellContextService: ShellContextService;
   filesystemService: FilesystemService;
   fileTreeService: FileTreeService;
   workspaceStateService: WorkspaceStateService;
@@ -91,6 +93,10 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectStore: storage.projects,
   });
 
+  const shellContextService = new ShellContextService({
+    shellContextStore: storage.shellContext,
+  });
+
   const filesystemService = new FilesystemService();
 
   const fileTreeService = new FileTreeService();
@@ -121,6 +127,7 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectMetadataService,
     projectUrlsService,
     shellService,
+    shellContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,
@@ -177,6 +184,7 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectMetadataService,
     projectUrlsService,
     shellService,
+    shellContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,

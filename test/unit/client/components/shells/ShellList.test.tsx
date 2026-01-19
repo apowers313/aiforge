@@ -292,6 +292,59 @@ describe('ShellItem', () => {
     expect(button).toHaveStyle({ backgroundColor: 'var(--mantine-color-dark-5)' });
   });
 
+  describe('Context sidebar integration', () => {
+    it('opens context sidebar when clicked', async () => {
+      const user = userEvent.setup();
+
+      renderWithProviders(<ShellItem shell={mockShell} projectId="proj-1" />, queryClient);
+
+      // Click the shell item
+      const shellButton = screen.getByTestId('shell-item');
+      await user.click(shellButton);
+
+      // Verify context sidebar opened with shell type and ID
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+      expect(useUIStore.getState().selectedContextType).toBe('shell');
+      expect(useUIStore.getState().selectedContextId).toBe('shell-1');
+    });
+
+    it('closes context sidebar when same shell clicked while open (toggle)', async () => {
+      const user = userEvent.setup();
+
+      // First, open the context sidebar for this shell
+      useUIStore.getState().openContextSidebar('shell', 'shell-1');
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+
+      renderWithProviders(<ShellItem shell={mockShell} projectId="proj-1" />, queryClient);
+
+      // Click the same shell
+      const shellButton = screen.getByTestId('shell-item');
+      await user.click(shellButton);
+
+      // Verify context sidebar closed
+      expect(useUIStore.getState().contextSidebarOpen).toBe(false);
+    });
+
+    it('switches context sidebar to different shell when different shell clicked', async () => {
+      const user = userEvent.setup();
+      const otherShell: Shell = { ...mockShell, id: 'shell-2', name: 'zsh-1' };
+
+      // Open context sidebar for a different shell first
+      useUIStore.getState().openContextSidebar('shell', 'shell-other');
+      expect(useUIStore.getState().selectedContextId).toBe('shell-other');
+
+      renderWithProviders(<ShellItem shell={otherShell} projectId="proj-1" />, queryClient);
+
+      // Click this shell
+      const shellButton = screen.getByTestId('shell-item');
+      await user.click(shellButton);
+
+      // Verify context sidebar switched to this shell
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+      expect(useUIStore.getState().selectedContextId).toBe('shell-2');
+    });
+  });
+
   describe('AI Shell Activity Indicator', () => {
     it('shows activity indicator for AI shells', () => {
       const { container } = renderWithProviders(

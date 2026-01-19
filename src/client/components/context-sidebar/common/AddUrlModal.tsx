@@ -11,6 +11,8 @@ interface AddUrlModalProps {
   initialName?: string;
   initialUrl?: string;
   isSubmitting?: boolean;
+  /** When true, modal is in edit mode with different title */
+  isEditMode?: boolean;
 }
 
 function isValidUrl(url: string): boolean {
@@ -29,6 +31,7 @@ export function AddUrlModal({
   initialName = '',
   initialUrl = '',
   isSubmitting = false,
+  isEditMode = false,
 }: AddUrlModalProps): React.ReactElement {
   const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(initialUrl);
@@ -81,7 +84,7 @@ export function AddUrlModal({
     <Modal
       opened={opened}
       onClose={onClose}
-      title="Add Custom URL"
+      title={isEditMode ? 'Edit URL' : 'Add Custom URL'}
       data-testid="add-url-modal"
     >
       <Stack>

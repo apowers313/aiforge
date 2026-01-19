@@ -87,6 +87,80 @@ describe('ProjectItem', () => {
     expect(useUIStore.getState().selectedContextId).toBe('proj-1');
   });
 
+  describe('Click zone separation', () => {
+    it('chevron click expands shells but does NOT open context sidebar', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      // Click chevron to expand
+      const chevronButton = screen.getByTestId('project-chevron');
+      await user.click(chevronButton);
+
+      // Project should be expanded
+      expect(useUIStore.getState().expandedProjectIds).toContain('proj-1');
+      // But context sidebar should NOT be open
+      expect(useUIStore.getState().contextSidebarOpen).toBe(false);
+    });
+
+    it('name click opens context sidebar but does NOT expand project', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      // Ensure project is initially collapsed
+      expect(useUIStore.getState().expandedProjectIds).not.toContain('proj-1');
+
+      // Click project name
+      const nameButton = screen.getByTestId('project-name');
+      await user.click(nameButton);
+
+      // Context sidebar should be open
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+      expect(useUIStore.getState().selectedContextType).toBe('project');
+      // But project should NOT be expanded
+      expect(useUIStore.getState().expandedProjectIds).not.toContain('proj-1');
+    });
+
+    it('closes context sidebar when same project name clicked while open (toggle)', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      // First, open the context sidebar for this project
+      useUIStore.getState().openContextSidebar('project', 'proj-1');
+      expect(useUIStore.getState().contextSidebarOpen).toBe(true);
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      // Click the same project name
+      const nameButton = screen.getByTestId('project-name');
+      await user.click(nameButton);
+
+      // Context sidebar should be closed
+      expect(useUIStore.getState().contextSidebarOpen).toBe(false);
+    });
+  });
+
   // Regression test: Project deletion must call the API
   it('deletes project via API when delete is clicked', async () => {
     const user = userEvent.setup();
