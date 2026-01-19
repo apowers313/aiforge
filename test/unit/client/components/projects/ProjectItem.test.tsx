@@ -87,6 +87,178 @@ describe('ProjectItem', () => {
     expect(useUIStore.getState().selectedContextId).toBe('proj-1');
   });
 
+  describe('Context menu', () => {
+    it('should not render "..." menu button', () => {
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      // The "..." menu button should not exist
+      expect(screen.queryByTestId('project-menu')).not.toBeInTheDocument();
+    });
+
+    it('should open context menu on right-click', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      const projectItem = screen.getByTestId('project-item');
+      await user.pointer({ keys: '[MouseRight]', target: projectItem });
+
+      expect(screen.getByText('Add AI Shell')).toBeInTheDocument();
+      expect(screen.getByText('Add Bash Shell')).toBeInTheDocument();
+      expect(screen.getByText('Add Worktree...')).toBeInTheDocument();
+      expect(screen.getByText('Delete Project')).toBeInTheDocument();
+    });
+
+    it('should show "Add Worktree..." as disabled', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      const projectItem = screen.getByTestId('project-item');
+      await user.pointer({ keys: '[MouseRight]', target: projectItem });
+
+      const worktreeItem = screen.getByText('Add Worktree...').closest('button');
+      expect(worktreeItem).toHaveAttribute('data-disabled', 'true');
+    });
+
+    it('should create AI shell from context menu', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      const projectItem = screen.getByTestId('project-item');
+      await user.pointer({ keys: '[MouseRight]', target: projectItem });
+
+      // Mock the create shell API call
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () =>
+          Promise.resolve({
+            shell: {
+              id: 'shell-1',
+              projectId: mockProject.id,
+              name: 'ai-1',
+              type: 'ai',
+              cwd: mockProject.path,
+              status: 'active',
+              pid: 1234,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          }),
+      });
+
+      // Mock refetch after create
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      await user.click(screen.getByText('Add AI Shell'));
+
+      // Verify API was called
+      await waitFor(() => {
+        const calls = mockFetch.mock.calls as [string, RequestInit | undefined][];
+        const createCall = calls.find(
+          (call) => call[0] === `/api/projects/${mockProject.id}/shells` && call[1]?.method === 'POST',
+        );
+        expect(createCall).toBeDefined();
+        if (createCall?.[1]?.body) {
+          const body = JSON.parse(createCall[1].body as string) as { type: string };
+          expect(body.type).toBe('ai');
+        }
+      });
+    });
+
+    it('should create Bash shell from context menu', async () => {
+      const user = userEvent.setup();
+
+      // Mock getShells for this project
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
+
+      const projectItem = screen.getByTestId('project-item');
+      await user.pointer({ keys: '[MouseRight]', target: projectItem });
+
+      // Mock the create shell API call
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: () =>
+          Promise.resolve({
+            shell: {
+              id: 'shell-1',
+              projectId: mockProject.id,
+              name: 'bash-1',
+              type: 'bash',
+              cwd: mockProject.path,
+              status: 'active',
+              pid: 1234,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          }),
+      });
+
+      // Mock refetch after create
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells: [] }),
+      });
+
+      await user.click(screen.getByText('Add Bash Shell'));
+
+      // Verify API was called
+      await waitFor(() => {
+        const calls = mockFetch.mock.calls as [string, RequestInit | undefined][];
+        const createCall = calls.find(
+          (call) => call[0] === `/api/projects/${mockProject.id}/shells` && call[1]?.method === 'POST',
+        );
+        expect(createCall).toBeDefined();
+        if (createCall?.[1]?.body) {
+          const body = JSON.parse(createCall[1].body as string) as { type: string };
+          expect(body.type).toBe('bash');
+        }
+      });
+    });
+  });
+
   describe('Click zone separation', () => {
     it('chevron click expands shells but does NOT open context sidebar', async () => {
       const user = userEvent.setup();
@@ -162,7 +334,7 @@ describe('ProjectItem', () => {
   });
 
   // Regression test: Project deletion must call the API
-  it('deletes project via API when delete is clicked', async () => {
+  it('deletes project via API when delete is clicked from context menu', async () => {
     const user = userEvent.setup();
 
     // Mock getShells
@@ -177,12 +349,9 @@ describe('ProjectItem', () => {
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
-    // Open the menu
-    const menuButtons = screen.getAllByRole('button');
-    const menuButton = menuButtons.find((btn) => btn.getAttribute('aria-haspopup') === 'menu');
-    if (menuButton) {
-      await user.click(menuButton);
-    }
+    // Right-click to open context menu
+    const projectItem = screen.getByTestId('project-item');
+    await user.pointer({ keys: '[MouseRight]', target: projectItem });
 
     // Mock the delete API call
     mockFetch.mockResolvedValueOnce({

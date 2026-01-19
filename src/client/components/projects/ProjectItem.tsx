@@ -1,5 +1,7 @@
-import { Box, Group, Text, UnstyledButton, Collapse, ActionIcon, Menu } from '@mantine/core';
-import { IconFolder, IconChevronRight, IconChevronDown, IconDots, IconTrash, IconPlus, IconSparkles } from '@tabler/icons-react';
+import { useState } from 'react';
+import { Box, Group, Text, UnstyledButton, Collapse, ActionIcon } from '@mantine/core';
+import { IconFolder, IconChevronRight, IconChevronDown, IconPlus, IconSparkles } from '@tabler/icons-react';
+import { ProjectContextMenu } from './ProjectContextMenu';
 import type { Project } from '@shared/types';
 import { useUIStore } from '@client/stores/uiStore';
 import { useDeleteProject } from '@client/hooks/useProjects';
@@ -41,6 +43,8 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
   const { data: shells = [] } = useShells(project.id);
   const projectAiStatus = useProjectAiStatus(shells);
   const statusColor = getProjectStatusColor(projectAiStatus);
+  const [contextMenuOpened, setContextMenuOpened] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
 
   // Project is highlighted when it's the selected context and no shell is active
   const isSelected = selectedContextType === 'project' && selectedContextId === project.id && activeShellId === null;
@@ -61,8 +65,7 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
     deleteProjectMutation.mutate(project.id);
   };
 
-  const handleAddShell = (e: React.MouseEvent): void => {
-    e.stopPropagation();
+  const handleAddBashShell = (): void => {
     const bashShellCount = shells.filter((s) => s.type === 'bash').length;
     const shellName = `bash-${String(bashShellCount + 1)}`;
 
@@ -78,8 +81,7 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
     );
   };
 
-  const handleAddAiShell = (e: React.MouseEvent): void => {
-    e.stopPropagation();
+  const handleAddAiShell = (): void => {
     const aiShellCount = shells.filter((s) => s.type === 'ai').length;
     const shellName = `ai-${String(aiShellCount + 1)}`;
 
@@ -93,6 +95,27 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
         },
       },
     );
+  };
+
+  const handleAddShellClick = (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    handleAddBashShell();
+  };
+
+  const handleAddAiShellClick = (e: React.MouseEvent): void => {
+    e.stopPropagation();
+    handleAddAiShell();
+  };
+
+  const handleContextMenu = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenuPosition({ x: e.clientX, y: e.clientY });
+    setContextMenuOpened(true);
+  };
+
+  const handleCloseContextMenu = (): void => {
+    setContextMenuOpened(false);
   };
 
   // Gutter width for status indicators (3px indicator + 4px margin)
@@ -125,7 +148,7 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
       </Box>
 
       {/* Content column */}
-      <Box style={{ flex: 1, minWidth: 0 }}>
+      <Box style={{ flex: 1, minWidth: 0 }} onContextMenu={handleContextMenu}>
         <Group gap={0} wrap="nowrap">
           <Box
             style={{
@@ -168,7 +191,7 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
           <ActionIcon
             variant="subtle"
             size="sm"
-            onClick={handleAddAiShell}
+            onClick={handleAddAiShellClick}
             aria-label="Add AI shell"
             data-testid="add-ai-shell-button"
           >
@@ -178,36 +201,24 @@ export function ProjectItem({ project }: ProjectItemProps): React.ReactElement {
           <ActionIcon
             variant="subtle"
             size="sm"
-            onClick={handleAddShell}
+            onClick={handleAddShellClick}
             aria-label="Add shell"
             data-testid="add-shell-button"
           >
             <IconPlus size={14} />
           </ActionIcon>
-
-          <Menu position="bottom-end" withinPortal>
-            <Menu.Target>
-              <ActionIcon
-                variant="subtle"
-                size="sm"
-                onClick={(e) => { e.stopPropagation(); }}
-                data-testid="project-menu"
-              >
-                <IconDots size={14} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item
-                color="red"
-                leftSection={<IconTrash size={14} />}
-                onClick={handleDelete}
-                data-testid="delete-project"
-              >
-                Delete Project
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
         </Group>
+
+        <ProjectContextMenu
+          project={project}
+          opened={contextMenuOpened}
+          position={contextMenuPosition}
+          onClose={handleCloseContextMenu}
+          onAddAiShell={handleAddAiShell}
+          onAddBashShell={handleAddBashShell}
+          onDelete={handleDelete}
+          worktreeEnabled={false}
+        />
 
         <Collapse in={isExpanded}>
           <Box py="xs" pl={16}>
