@@ -10,8 +10,9 @@ import type {
   SessionClosedMessage,
   SessionErrorMessage,
   SessionOutputMessage,
+  SessionCloseReason,
 } from '@shared/types/index.js';
-import type { ShellSessionManager } from '@server/services/shell/ShellSessionManager.js';
+import type { ShellSessionManager, SessionClosedEvent } from '@server/services/shell/ShellSessionManager.js';
 import { SessionError } from '@server/services/shell/SessionError.js';
 import { logger } from '@server/utils/logger.js';
 
@@ -64,6 +65,41 @@ export class TerminalHandler {
 
   constructor(sessionManager: ShellSessionManager) {
     this._sessionManager = sessionManager;
+
+    // Listen for session closed events from the session manager
+    // This handles cases where sessions are closed externally (e.g., shell deleted via API)
+    // The session's own exit event may not fire if it's disposed before exiting
+    this._sessionManager.on('session:closed', (event: SessionClosedEvent) => {
+      this._notifyClientsOfSessionClosed(event.shellId, event.reason);
+    });
+  }
+
+  /**
+   * Notify all clients subscribed to a shell that the session has closed
+   */
+  private _notifyClientsOfSessionClosed(shellId: string, reason: SessionCloseReason): void {
+    for (const [ws, subscriptions] of this._clientSubscriptions) {
+      const index = subscriptions.findIndex((s) => s.shellId === shellId);
+      if (index !== -1) {
+        const response: SessionClosedMessage = {
+          type: 'session.closed',
+          shellId,
+          reason,
+        };
+        try {
+          ws.send(JSON.stringify(response));
+        } catch {
+          // Client may have disconnected
+        }
+        // Clean up the subscription
+        const subscription = subscriptions[index];
+        if (subscription) {
+          subscription.dataCleanup();
+          subscription.exitCleanup();
+          subscriptions.splice(index, 1);
+        }
+      }
+    }
   }
 
   /**

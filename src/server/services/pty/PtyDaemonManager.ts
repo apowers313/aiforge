@@ -262,6 +262,9 @@ export class PtyDaemonManager extends EventEmitter {
       session.kill();
       session.dispose();
       this._sessions.delete(shellId);
+      // Emit session:exited event so clients are notified of the closure
+      // The exit event from the daemon won't fire since we disposed the session
+      this.emit('session:exited', shellId, 0);
     }
 
     // Also remove the socket file if it exists

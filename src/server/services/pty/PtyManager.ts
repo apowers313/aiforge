@@ -116,6 +116,9 @@ export class PtyManager extends EventEmitter {
     session.kill();
     this._sessions.delete(shellId);
     session.dispose();
+    // Emit session:exited event so clients are notified of the closure
+    // The exit event from the PTY won't fire since we disposed the session
+    this.emit('session:exited', shellId, 0);
   }
 
   /**

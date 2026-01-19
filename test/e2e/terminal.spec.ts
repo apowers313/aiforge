@@ -209,11 +209,7 @@ test.describe.serial('Terminal', () => {
     // Get the backend URL for API calls
     const backendUrl = getBackendUrl(page);
 
-    // Get the project ID from the first project's shells
-    const projectItem = page.locator('[data-testid="project-item"]').first();
-    await projectItem.click();
-
-    // Get shells via API to find the shell ID
+    // Get shells via API to find the shell ID (get the most recently created shell)
     const apiResponse = await page.evaluate(
       async ({ backendUrl }: { backendUrl: string }) => {
         // First get projects
@@ -229,8 +225,12 @@ test.describe.serial('Terminal', () => {
         const shellsRes = await fetch(`${backendUrl}/api/projects/${projectId}/shells`, {
           credentials: 'include',
         });
-        const shellsData = (await shellsRes.json()) as { shells: { id: string }[] };
-        return { shellId: shellsData.shells[0]?.id, projectId };
+        const shellsData = (await shellsRes.json()) as { shells: { id: string; createdAt: string }[] };
+        // Sort by createdAt descending and get the most recent shell
+        const sortedShells = shellsData.shells.sort((a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+        return { shellId: sortedShells[0]?.id, projectId };
       },
       { backendUrl },
     );

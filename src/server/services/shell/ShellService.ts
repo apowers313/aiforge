@@ -33,7 +33,11 @@ export class ShellService {
     // Set up event handlers if ptyPool is provided
     if (this.ptyPool) {
       this.ptyPool.on('session:exited', (shellId: string, exitCode: number) => {
-        void this._handleSessionExit(shellId, exitCode);
+        this._handleSessionExit(shellId, exitCode).catch((err: unknown) => {
+          // Log but don't crash on lock contention or other storage errors
+          // This can happen during shell deletion when concurrent updates race
+          console.error(`[ShellService] Failed to handle session exit for ${shellId}:`, err);
+        });
       });
 
       // Track lastActivityAt for AI shells with input-aware logic:
@@ -42,14 +46,20 @@ export class ShellService {
       // This prevents prompt refresh after reconnection from counting as activity
       this.ptyPool.on('session:input', (shellId: string) => {
         this.lastInputTimes.set(shellId, Date.now());
-        void this._handleSessionActivity(shellId);
+        this._handleSessionActivity(shellId).catch((err: unknown) => {
+          // Log but don't crash on storage errors
+          console.error(`[ShellService] Failed to handle session activity for ${shellId}:`, err);
+        });
       });
 
       this.ptyPool.on('session:output', (shellId: string) => {
         // Only count output as activity if there was recent input
         const lastInputTime = this.lastInputTimes.get(shellId);
         if (lastInputTime && Date.now() - lastInputTime < this.inputActivityWindowMs) {
-          void this._handleSessionActivity(shellId);
+          this._handleSessionActivity(shellId).catch((err: unknown) => {
+            // Log but don't crash on storage errors
+            console.error(`[ShellService] Failed to handle session activity for ${shellId}:`, err);
+          });
         }
         // Otherwise, output is ignored (likely prompt refresh or other housekeeping)
       });

@@ -87,14 +87,16 @@ export class JsonStore<T> {
   async update(updater: (data: T) => T): Promise<T> {
     await this.ensureFile();
 
-    // Acquire lock
+    // Acquire lock with robust retry settings for CI/high-contention scenarios
     const release = await lockfile.lock(this.filePath, {
       retries: {
-        retries: 10,
+        retries: 20, // More retries for CI environments
         factor: 2,
-        minTimeout: 50,
-        maxTimeout: 1000,
+        minTimeout: 25, // Start faster
+        maxTimeout: 2000, // Allow longer waits
+        randomize: true, // Add jitter to reduce collision likelihood
       },
+      stale: 10000, // Consider lock stale after 10 seconds
     });
 
     try {
