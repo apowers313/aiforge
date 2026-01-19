@@ -57,6 +57,7 @@ export function ContextSidebar(): React.ReactElement | null {
   );
 
   // Custom click-outside handler that ignores clicks on Mantine portaled elements
+  // and context trigger elements (project-name, shell-item)
   const handleClickOutside = useCallback(
     (event: MouseEvent) => {
       if (!pinned && open && sidebarRef.current) {
@@ -69,6 +70,12 @@ export function ContextSidebar(): React.ReactElement | null {
 
         // Don't close if clicking inside a Mantine portal (Menu, Modal, etc.)
         if (isInsideMantinePortal(target)) {
+          return;
+        }
+
+        // Don't close if clicking on a context trigger element (these have their own toggle logic)
+        // This prevents race condition: mousedown closes, then onClick reopens
+        if (target.closest('[data-testid="project-name"], [data-testid="shell-item"]')) {
           return;
         }
 

@@ -33,7 +33,8 @@ test.describe.serial('Context Sidebar', () => {
     await expect(page.locator('[data-testid="context-sidebar"]')).toBeVisible();
 
     // Verify it shows URLs tab (default for project)
-    await expect(page.locator('button[data-active="true"]:has-text("URLs")')).toBeVisible();
+    // Mantine v8 SegmentedControl uses radiogroup with hidden radio inputs
+    await expect(page.getByRole('radio', { name: 'URLs' })).toBeChecked();
 
     // Verify pin button exists and is unpinned by default
     const pinButton = page.locator('[data-testid="pin-button"]');
@@ -49,9 +50,17 @@ test.describe.serial('Context Sidebar', () => {
     // Wait for project
     await expect(page.locator('[data-testid="project-item"]').first()).toBeVisible();
 
-    // First, close any open sidebar by clicking outside or pressing escape
-    await page.keyboard.press('Escape');
-    await expect(page.locator('[data-testid="context-sidebar"]')).not.toBeVisible({ timeout: 5000 });
+    // Close any open sidebar (pinned sidebars don't respond to Escape, use close button)
+    const sidebar = page.locator('[data-testid="context-sidebar"]');
+    if (await sidebar.isVisible({ timeout: 1000 }).catch(() => false)) {
+      // Unpin if pinned, then close
+      const pinButton = page.locator('[data-testid="pin-button"]');
+      if (await pinButton.getAttribute('aria-pressed') === 'true') {
+        await pinButton.click();
+      }
+      await page.locator('[data-testid="close-button"]').click();
+    }
+    await expect(sidebar).not.toBeVisible({ timeout: 5000 });
 
     // Click chevron - should expand project shells list without opening sidebar
     const chevron = page.locator('[data-testid="project-chevron"]').first();
@@ -67,9 +76,12 @@ test.describe.serial('Context Sidebar', () => {
     await page.locator('[data-testid="project-name"]').first().click();
     await expect(page.locator('[data-testid="context-sidebar"]')).toBeVisible();
 
+    // Wait for state to settle (workspace sync has debounce)
+    await page.waitForTimeout(500);
+
     // Click same project name again - should close sidebar (toggle)
     await page.locator('[data-testid="project-name"]').first().click();
-    await expect(page.locator('[data-testid="context-sidebar"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="context-sidebar"]')).not.toBeVisible({ timeout: 5000 });
   });
 
   test('shell context workflow - open sidebar with shell', async ({ page }) => {
@@ -92,8 +104,15 @@ test.describe.serial('Context Sidebar', () => {
       await expect(page.locator('[data-testid="shell-item"]').first()).toBeVisible({ timeout: 10000 });
     }
 
-    // Close any existing sidebar
-    await page.keyboard.press('Escape');
+    // Close any existing sidebar (use close button since pinned sidebars don't respond to Escape)
+    const sidebar = page.locator('[data-testid="context-sidebar"]');
+    if (await sidebar.isVisible({ timeout: 1000 }).catch(() => false)) {
+      const pinButton = page.locator('[data-testid="pin-button"]');
+      if (await pinButton.getAttribute('aria-pressed') === 'true') {
+        await pinButton.click();
+      }
+      await page.locator('[data-testid="close-button"]').click();
+    }
     await page.waitForTimeout(300);
 
     // Click on a shell
@@ -103,11 +122,12 @@ test.describe.serial('Context Sidebar', () => {
     await expect(page.locator('[data-testid="context-sidebar"]')).toBeVisible();
 
     // Verify it shows TODOs tab (default for shell)
-    await expect(page.locator('button[data-active="true"]:has-text("TODOs")')).toBeVisible();
+    // Mantine v8 SegmentedControl uses radiogroup with hidden radio inputs
+    await expect(page.getByRole('radio', { name: 'TODOs' })).toBeChecked();
 
-    // Switch to Notes tab
-    await page.locator('button:has-text("Notes")').click();
-    await expect(page.locator('button[data-active="true"]:has-text("Notes")')).toBeVisible();
+    // Switch to Notes tab - clicking the label works since radio is hidden
+    await page.getByText('Notes', { exact: true }).click();
+    await expect(page.getByRole('radio', { name: 'Notes' })).toBeChecked();
   });
 
   test('sidebar close button works', async ({ page }) => {

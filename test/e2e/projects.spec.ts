@@ -40,15 +40,15 @@ test.describe.serial('Projects', () => {
     await expect(page.locator('[data-testid="project-item"]')).toBeVisible();
   });
 
-  test('can open project menu', async ({ page }) => {
+  test('can open project context menu', async ({ page }) => {
     // Verify project exists
     await expect(page.locator('[data-testid="project-item"]')).toBeVisible();
 
-    // Open the menu
-    await page.locator('[data-testid="project-menu"]').first().click();
+    // Right-click on project to open context menu
+    await page.locator('[data-testid="project-item"]').first().click({ button: 'right' });
 
-    // Verify delete option is available
-    await expect(page.locator('[data-testid="delete-project"]')).toBeVisible();
+    // Verify delete option is available in the context menu
+    await expect(page.getByText('Delete Project')).toBeVisible();
 
     // Close menu by pressing Escape
     await page.keyboard.press('Escape');
