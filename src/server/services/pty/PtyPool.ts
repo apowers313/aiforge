@@ -55,6 +55,8 @@ async function socketExists(socketPath: string): Promise<boolean> {
 export interface PtyPoolOptions extends PtyManagerOptions {
   /** Use persistent daemon processes instead of direct PTY spawning */
   usePersistentDaemons?: boolean;
+  /** Remote logger URL for daemon debugging */
+  remoteLoggerUrl?: string;
 }
 
 /**
@@ -77,12 +79,15 @@ export class PtyPool extends EventEmitter {
 
     // Create daemon manager if persistent mode is enabled
     if (this._usePersistentDaemons) {
-      const daemonOptions: { defaultShell?: string; scrollbackStore?: ScrollbackStore } = {};
+      const daemonOptions: { defaultShell?: string; scrollbackStore?: ScrollbackStore; remoteLoggerUrl?: string } = {};
       if (options.defaultShell) {
         daemonOptions.defaultShell = options.defaultShell;
       }
       if (options.scrollbackStore) {
         daemonOptions.scrollbackStore = options.scrollbackStore;
+      }
+      if (options.remoteLoggerUrl) {
+        daemonOptions.remoteLoggerUrl = options.remoteLoggerUrl;
       }
       this._daemonManager = new PtyDaemonManager(daemonOptions);
     } else {

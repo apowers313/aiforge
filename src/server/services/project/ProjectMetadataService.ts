@@ -1,10 +1,11 @@
 /**
  * ProjectMetadataService - Detects project metadata like git remotes, package.json, etc.
+ * Phase 7: Refactored to use GitService for centralized git operations
  */
 import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { simpleGit } from 'simple-git';
 import type { ProjectMetadata } from '@shared/types/index.js';
+import { GitService } from '../git/GitService.js';
 
 export class ProjectMetadataService {
   /**
@@ -28,14 +29,15 @@ export class ProjectMetadataService {
 
   /**
    * Get git remote information
+   * Phase 7: Refactored to use GitService for centralized git operations
    */
   private async getGitInfo(projectPath: string): Promise<{
     remoteUrl: string | null;
     remoteType: ProjectMetadata['gitRemoteType'];
   }> {
     try {
-      const git = simpleGit(projectPath);
-      const remotes = await git.getRemotes(true);
+      const gitService = new GitService(projectPath);
+      const remotes = await gitService.getRemotes();
       const origin = remotes.find((r) => r.name === 'origin');
 
       if (!origin?.refs.fetch) {

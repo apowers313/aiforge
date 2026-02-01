@@ -15,6 +15,7 @@ export interface DaemonConfig {
   cols: number;
   rows: number;
   scrollbackDir: string;
+  remoteLoggerUrl?: string;
 }
 
 /**

@@ -4,6 +4,7 @@ import { useUIStore } from '@client/stores/uiStore';
 import { ContextSidebarHeader } from './ContextSidebarHeader';
 import { ProjectContext } from './ProjectContext';
 import { ShellContext } from './ShellContext';
+import { WorktreeContext } from './WorktreeContext';
 import { ContextSidebarResizeHandle } from './common/ContextSidebarResizeHandle';
 import type { ContextSidebarTab } from '@shared/types';
 
@@ -75,7 +76,7 @@ export function ContextSidebar(): React.ReactElement | null {
 
         // Don't close if clicking on a context trigger element (these have their own toggle logic)
         // This prevents race condition: mousedown closes, then onClick reopens
-        if (target.closest('[data-testid="project-name"], [data-testid="shell-item"]')) {
+        if (target.closest('[data-testid="project-name"], [data-testid="shell-item"], [data-testid="worktree-item"]')) {
           return;
         }
 
@@ -93,16 +94,22 @@ export function ContextSidebar(): React.ReactElement | null {
   }, [handleClickOutside]);
 
   // Determine which tabs to show based on context type
-  const isProject = contextType === 'project';
-  const tabs = isProject
+  // Projects have URLs/Files/TODOs/Notes tabs
+  // Worktrees share URLs/Files tabs (no TODOs/Notes)
+  // Shells have no context sidebar tabs (they use project context)
+  const tabs = contextType === 'project'
     ? [
       { label: 'URLs', value: 'urls' as ContextSidebarTab },
       { label: 'Files', value: 'files' as ContextSidebarTab },
-    ]
-    : [
       { label: 'TODOs', value: 'todos' as ContextSidebarTab },
       { label: 'Notes', value: 'notes' as ContextSidebarTab },
-    ];
+    ]
+    : contextType === 'worktree'
+      ? [
+        { label: 'URLs', value: 'urls' as ContextSidebarTab },
+        { label: 'Files', value: 'files' as ContextSidebarTab },
+      ]
+      : []; // Shells no longer have context tabs
 
   const shouldShow = open && contextType !== null;
 
@@ -154,7 +161,9 @@ export function ContextSidebar(): React.ReactElement | null {
           </Box>
 
           <Stack flex={1} p="sm" pt={0} style={{ overflow: 'auto' }}>
-            {isProject ? <ProjectContext /> : <ShellContext />}
+            {contextType === 'project' && <ProjectContext />}
+            {contextType === 'shell' && <ShellContext />}
+            {contextType === 'worktree' && <WorktreeContext />}
           </Stack>
         </Box>
       )}

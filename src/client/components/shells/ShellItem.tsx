@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Box, Group, Text, UnstyledButton, ActionIcon, Menu, Badge, Modal, TextInput, Button, Stack } from '@mantine/core';
+import { ActionIcon, Menu, Badge, Modal, TextInput, Button, Stack, Group } from '@mantine/core';
 import { IconTerminal2, IconDots, IconTrash, IconPencil, IconRefresh, IconSparkles, IconCheck, IconPlayerPlay } from '@tabler/icons-react';
 import type { Shell } from '@shared/types';
 import { useDeleteShell, useUpdateShell, useRestartShell, useActiveShellId } from '@client/hooks/useShells';
 import { useUIStore } from '@client/stores/uiStore';
+import { TreeItem } from '@client/components/common/TreeItem';
 
 interface ShellItemProps {
   shell: Shell;
   projectId: string;
   /** Timeout in milliseconds before AI shell is considered idle (default: 5000) */
   aiIdleTimeoutMs?: number;
-  /** Offset in pixels for positioning the AI activity indicator in the left gutter */
-  indicatorOffset?: number;
+  /** Tree depth for proper indentation (default: 1) */
+  depth?: number;
 }
 
 /**
@@ -79,53 +80,118 @@ export function useAiShellActivity(shell: Shell, idleTimeoutMs: number): boolean
 export type ProjectAiStatus = 'red' | 'green' | 'blue' | null;
 
 /**
- * Hook to determine the aggregated AI status for a project
- * Returns:
- * - 'red' if any AI shell is idle (not done, not recently active)
- * - 'green' if any AI shell is active (not done, recently active)
- * - 'blue' if all AI shells are done
- * - null if there are no AI shells
+ * Worktree info needed for status calculation
  */
-export function useProjectAiStatus(shells: Shell[], idleTimeoutMs = 5000): ProjectAiStatus {
+export interface WorktreeStatusInfo {
+  path: string;
+  done: boolean;
+}
+
+/**
+ * Calculate status for a group of AI shells
+ * Returns: 'red' | 'green' | 'blue' | null
+ */
+function calculateShellGroupStatus(
+  aiShells: Shell[],
+  shellActivityTimestamps: Record<string, number>,
+  idleTimeoutMs: number,
+): ProjectAiStatus {
+  if (aiShells.length === 0) {
+    return null;
+  }
+
+  let hasRed = false;
+  let hasGreen = false;
+  let hasBlue = false;
+
+  for (const shell of aiShells) {
+    if (shell.done) {
+      hasBlue = true;
+    } else {
+      const isActive = isShellRecentlyActive(
+        shell,
+        shellActivityTimestamps[shell.id],
+        idleTimeoutMs,
+      );
+      if (isActive) {
+        hasGreen = true;
+      } else {
+        hasRed = true;
+      }
+    }
+  }
+
+  // Priority: red > green > blue
+  if (hasRed) return 'red';
+  if (hasGreen) return 'green';
+  if (hasBlue) return 'blue';
+  return null;
+}
+
+/**
+ * Hook to determine the aggregated AI status for a project
+ *
+ * Status aggregation:
+ * 1. Direct AI shells (shells with no worktreePath) contribute to project status
+ * 2. Each worktree's status is calculated from its AI shells
+ *    - If worktree is marked done → 'blue' (regardless of shell activity)
+ *    - Otherwise, status comes from worktree's AI shells
+ * 3. All statuses are aggregated with priority: red > green > blue > null
+ *
+ * @param shells - All shells for the project (including worktree shells)
+ * @param worktrees - Worktrees with their done status (optional, for status aggregation)
+ * @param idleTimeoutMs - Timeout before AI shell is considered idle (default: 5000)
+ * @returns Aggregated status: 'red' | 'green' | 'blue' | null
+ */
+export function useProjectAiStatus(
+  shells: Shell[],
+  worktrees: WorktreeStatusInfo[] = [],
+  idleTimeoutMs = 5000,
+): ProjectAiStatus {
   const [status, setStatus] = useState<ProjectAiStatus>(null);
   const shellActivityTimestamps = useUIStore((state) => state.shellActivityTimestamps);
 
   useEffect(() => {
-    const aiShells = shells.filter((s) => s.type === 'ai');
-
-    if (aiShells.length === 0) {
-      setStatus(null);
-      return;
-    }
+    // Separate direct project shells from worktree shells
+    const directShells = shells.filter((s) => s.worktreePath == null);
+    const directAiShells = directShells.filter((s) => s.type === 'ai');
 
     const checkStatus = (): void => {
-      let hasRed = false;
-      let hasGreen = false;
-      let hasBlue = false;
+      const allStatuses: ProjectAiStatus[] = [];
 
-      for (const shell of aiShells) {
-        if (shell.done) {
-          hasBlue = true;
+      // 1. Calculate status for direct AI shells
+      const directStatus = calculateShellGroupStatus(directAiShells, shellActivityTimestamps, idleTimeoutMs);
+      if (directStatus !== null) {
+        allStatuses.push(directStatus);
+      }
+
+      // 2. Calculate status for each worktree
+      for (const worktree of worktrees) {
+        if (worktree.done) {
+          // Worktree marked as done → blue
+          allStatuses.push('blue');
         } else {
-          const isActive = isShellRecentlyActive(
-            shell,
-            shellActivityTimestamps[shell.id],
-            idleTimeoutMs,
-          );
-          if (isActive) {
-            hasGreen = true;
-          } else {
-            hasRed = true;
+          // Get shells for this worktree
+          const worktreeShells = shells.filter((s) => s.worktreePath === worktree.path);
+          const worktreeAiShells = worktreeShells.filter((s) => s.type === 'ai');
+          const worktreeStatus = calculateShellGroupStatus(worktreeAiShells, shellActivityTimestamps, idleTimeoutMs);
+          if (worktreeStatus !== null) {
+            allStatuses.push(worktreeStatus);
           }
         }
       }
 
-      // Priority: red > green > blue
-      if (hasRed) {
+      // 3. Aggregate all statuses with priority: red > green > blue
+      if (allStatuses.length === 0) {
+        setStatus(null);
+        return;
+      }
+
+      if (allStatuses.includes('red')) {
         setStatus('red');
-      } else if (hasGreen) {
+      } else if (allStatuses.includes('green')) {
         setStatus('green');
-      } else if (hasBlue) {
+      } else if (allStatuses.includes('blue')) {
         setStatus('blue');
       } else {
         setStatus(null);
@@ -141,12 +207,12 @@ export function useProjectAiStatus(shells: Shell[], idleTimeoutMs = 5000): Proje
     return (): void => {
       clearInterval(interval);
     };
-  }, [shells, shellActivityTimestamps, idleTimeoutMs]);
+  }, [shells, worktrees, shellActivityTimestamps, idleTimeoutMs]);
 
   return status;
 }
 
-export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorOffset = 7 }: ShellItemProps): React.ReactElement {
+export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, depth = 1 }: ShellItemProps): React.ReactElement {
   const { activeShellId, setActiveShell } = useActiveShellId();
   const toggleContextSidebar = useUIStore((state) => state.toggleContextSidebar);
   const deleteShellMutation = useDeleteShell();
@@ -155,6 +221,7 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorO
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [newName, setNewName] = useState(shell.name);
   const [contextMenuOpened, setContextMenuOpened] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const isAiRecentlyActive = useAiShellActivity(shell, aiIdleTimeoutMs);
 
   const isActive = activeShellId === shell.id;
@@ -218,102 +285,86 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, indicatorO
     setContextMenuOpened(true);
   };
 
+  // Build the icon based on shell type
+  const icon = isAiShell ? (
+    <IconSparkles size={14} style={{ color: 'var(--mantine-color-violet-4)' }} />
+  ) : (
+    <IconTerminal2 size={14} style={{ color: 'var(--mantine-color-green-4)' }} />
+  );
+
+  // Menu for shell options (always visible)
+  const menu = (
+    <Menu position="bottom-end" withinPortal opened={contextMenuOpened} onClose={(): void => { setContextMenuOpened(false); }}>
+      <Menu.Target>
+        <ActionIcon
+          variant="subtle"
+          size="xs"
+          onClick={(e): void => { e.stopPropagation(); setContextMenuOpened(true); }}
+        >
+          <IconDots size={12} />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item
+          leftSection={<IconPencil size={14} />}
+          onClick={handleRenameClick}
+        >
+          Rename
+        </Menu.Item>
+        <Menu.Item
+          leftSection={<IconRefresh size={14} />}
+          onClick={handleRestart}
+        >
+          Restart
+        </Menu.Item>
+        {isAiShell && (
+          <Menu.Item
+            leftSection={shell.done ? <IconPlayerPlay size={14} /> : <IconCheck size={14} />}
+            onClick={handleToggleDone}
+          >
+            {shell.done ? 'Mark as Active' : 'Mark as Done'}
+          </Menu.Item>
+        )}
+        <Menu.Divider />
+        <Menu.Item
+          color="red"
+          leftSection={<IconTrash size={14} />}
+          onClick={handleDelete}
+        >
+          Close Shell
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+
+  // Build badges for display (includes status badge and menu)
+  const badges = (
+    <>
+      <Badge size="xs" variant="dot" color={statusColor}>
+        {shell.status}
+      </Badge>
+      {menu}
+    </>
+  );
+
   return (
     <>
-      <Box
-        style={{
-          display: 'flex',
-          alignItems: 'stretch',
-          position: 'relative',
-        }}
+      <TreeItem
+        label={shell.name}
+        icon={icon}
+        onClick={handleClick}
         onContextMenu={handleContextMenu}
-      >
-        {/* Activity indicator for AI shells - positioned in the left gutter */}
-        {isAiShell && (
-          <Box
-            style={{
-              position: 'absolute',
-              left: -indicatorOffset,
-              top: 0,
-              bottom: 0,
-              width: 3,
-              backgroundColor: activityIndicatorColor,
-              borderRadius: 'var(--mantine-radius-xs)',
-            }}
-            data-testid="ai-activity-indicator"
-          />
-        )}
-        <Group gap={0} wrap="nowrap" style={{ flex: 1 }}>
-          <UnstyledButton
-            onClick={handleClick}
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              borderRadius: 'var(--mantine-radius-sm)',
-              backgroundColor: isActive ? 'var(--mantine-color-dark-5)' : 'transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-            className="shell-item"
-            data-testid="shell-item"
-          >
-            {isAiShell ? (
-              <IconSparkles size={14} style={{ flexShrink: 0, color: 'var(--mantine-color-violet-4)' }} />
-            ) : (
-              <IconTerminal2 size={14} style={{ flexShrink: 0, color: 'var(--mantine-color-green-4)' }} />
-            )}
-            <Text size="xs" truncate style={{ flex: 1 }}>
-              {shell.name}
-            </Text>
-            <Badge size="xs" variant="dot" color={statusColor}>
-              {shell.status}
-            </Badge>
-          </UnstyledButton>
-
-          <Menu position="bottom-end" withinPortal opened={contextMenuOpened} onClose={() => { setContextMenuOpened(false); }}>
-            <Menu.Target>
-              <ActionIcon
-                variant="subtle"
-                size="xs"
-                onClick={(e) => { e.stopPropagation(); setContextMenuOpened(true); }}
-              >
-                <IconDots size={12} />
-              </ActionIcon>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<IconPencil size={14} />}
-                onClick={handleRenameClick}
-              >
-                Rename
-              </Menu.Item>
-              <Menu.Item
-                leftSection={<IconRefresh size={14} />}
-                onClick={handleRestart}
-              >
-                Restart
-              </Menu.Item>
-              {isAiShell && (
-                <Menu.Item
-                  leftSection={shell.done ? <IconPlayerPlay size={14} /> : <IconCheck size={14} />}
-                  onClick={handleToggleDone}
-                >
-                  {shell.done ? 'Mark as Active' : 'Mark as Done'}
-                </Menu.Item>
-              )}
-              <Menu.Divider />
-              <Menu.Item
-                color="red"
-                leftSection={<IconTrash size={14} />}
-                onClick={handleDelete}
-              >
-                Close Shell
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
-        </Group>
-      </Box>
+        depth={depth}
+        statusColor={isAiShell ? activityIndicatorColor : null}
+        selected={isActive}
+        hovered={isHovered}
+        onHoverChange={setIsHovered}
+        strikethrough={shell.done}
+        dimmed={shell.done}
+        badges={badges}
+        testId="shell-item"
+        nameTestId="shell-name"
+      />
 
       <Modal
         opened={renameModalOpen}

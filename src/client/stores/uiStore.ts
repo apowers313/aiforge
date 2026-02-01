@@ -19,6 +19,8 @@ interface UIState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   expandedProjectIds: string[];
+  expandedWorktreePaths: string[];
+  worktreeStatusHiddenProjects: string[];
 
   // Modal state
   addProjectModalOpen: boolean;
@@ -55,6 +57,9 @@ interface UIState {
   closeAddProjectModal: () => void;
   toggleProjectExpanded: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  toggleWorktreeExpanded: (worktreePath: string) => void;
+  toggleWorktreeStatusVisibility: (projectId: string) => void;
+  isWorktreeStatusHidden: (projectId: string) => boolean;
   setSelectedProject: (id: string | null) => void;
   setActiveShell: (id: string | null) => void;
   setTerminalFontSize: (size: number) => void;
@@ -93,6 +98,8 @@ const initialState = {
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   addProjectModalOpen: false,
   expandedProjectIds: [] as string[],
+  expandedWorktreePaths: [] as string[],
+  worktreeStatusHiddenProjects: [] as string[],
   selectedProjectId: null as string | null,
   activeShellId: null as string | null,
   terminalFontSize: DEFAULT_TERMINAL_FONT_SIZE,
@@ -165,6 +172,38 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
     });
   },
 
+  toggleWorktreeExpanded: (worktreePath: string): void => {
+    set((state) => {
+      const index = state.expandedWorktreePaths.indexOf(worktreePath);
+      if (index >= 0) {
+        return {
+          expandedWorktreePaths: state.expandedWorktreePaths.filter((path) => path !== worktreePath),
+        };
+      }
+      return {
+        expandedWorktreePaths: [...state.expandedWorktreePaths, worktreePath],
+      };
+    });
+  },
+
+  toggleWorktreeStatusVisibility: (projectId: string): void => {
+    set((state) => {
+      const index = state.worktreeStatusHiddenProjects.indexOf(projectId);
+      if (index >= 0) {
+        return {
+          worktreeStatusHiddenProjects: state.worktreeStatusHiddenProjects.filter((id) => id !== projectId),
+        };
+      }
+      return {
+        worktreeStatusHiddenProjects: [...state.worktreeStatusHiddenProjects, projectId],
+      };
+    });
+  },
+
+  isWorktreeStatusHidden: (projectId: string): boolean => {
+    return useUIStore.getState().worktreeStatusHiddenProjects.includes(projectId);
+  },
+
   setSelectedProject: (id: string | null): void => {
     set({ selectedProjectId: id });
   },
@@ -216,7 +255,9 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
   // Context sidebar actions
   openContextSidebar: (type: ContextType, id: string): void => {
     // Determine the default tab based on type
-    const defaultTab: ContextSidebarTab = type === 'project' ? 'urls' : 'todos';
+    // Projects have URLs/Files/TODOs/Notes tabs, worktrees have URLs/Files
+    // Shells no longer have their own context tabs
+    const defaultTab: ContextSidebarTab = 'urls';
     set({
       contextSidebarOpen: true,
       selectedContextType: type,
@@ -244,15 +285,17 @@ export const useUIStore = createWithEqualityFn<UIState>()((set) => ({
         };
       }
       // Otherwise, open with the new item
-      const defaultTab: ContextSidebarTab = type === 'project' ? 'urls' : 'todos';
-      // When selecting a project, clear the active shell so only the project is highlighted
+      // Projects have URLs/Files/TODOs/Notes tabs, worktrees have URLs/Files
+      // Shells no longer have their own context tabs
+      const defaultTab: ContextSidebarTab = 'urls';
+      // When selecting a project or worktree, clear the active shell so only it is highlighted
       const updates: Partial<UIState> = {
         contextSidebarOpen: true,
         selectedContextType: type,
         selectedContextId: id,
         contextSidebarActiveTab: defaultTab,
       };
-      if (type === 'project') {
+      if (type === 'project' || type === 'worktree') {
         updates.activeShellId = null;
       }
       return updates;

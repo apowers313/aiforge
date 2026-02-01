@@ -19,6 +19,51 @@ const mockProject: Project = {
   updatedAt: new Date().toISOString(),
 };
 
+/**
+ * Setup mock fetch to handle all API calls for ProjectItem
+ * This is needed because ProjectItem now calls multiple APIs:
+ * - GET /api/projects/:id/shells
+ * - GET /api/projects/:id/worktrees
+ * - GET /api/projects/:id/worktrees/main (for AddWorktreeModal)
+ */
+function setupMockFetch(options: {
+  shells?: unknown[];
+  worktrees?: unknown[];
+  mainBranch?: string;
+} = {}): void {
+  const { shells = [], worktrees = [], mainBranch = 'main' } = options;
+
+  mockFetch.mockImplementation((url: string) => {
+    if (url.includes('/shells')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells }),
+      });
+    }
+    if (url.includes('/worktrees/main')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ branch: mainBranch }),
+      });
+    }
+    if (url.includes('/worktrees')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ worktrees }),
+      });
+    }
+    // Default response for unknown URLs
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+    });
+  });
+}
+
 describe('ProjectItem', () => {
   let queryClient: QueryClient;
 
@@ -34,12 +79,7 @@ describe('ProjectItem', () => {
   });
 
   it('renders project name', () => {
-    // Mock getShells for this project
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
-    });
+    setupMockFetch();
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
     expect(screen.getByText('test-project')).toBeInTheDocument();
@@ -47,13 +87,7 @@ describe('ProjectItem', () => {
 
   it('expands to show shells when chevron clicked', async () => {
     const user = userEvent.setup();
-
-    // Mock getShells for this project
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
-    });
+    setupMockFetch();
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -67,13 +101,7 @@ describe('ProjectItem', () => {
 
   it('opens context sidebar when project name clicked', async () => {
     const user = userEvent.setup();
-
-    // Mock getShells for this project
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
-    });
+    setupMockFetch();
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -89,12 +117,7 @@ describe('ProjectItem', () => {
 
   describe('Context menu', () => {
     it('should not render "..." menu button', () => {
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -104,13 +127,7 @@ describe('ProjectItem', () => {
 
     it('should open context menu on right-click', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -125,13 +142,8 @@ describe('ProjectItem', () => {
 
     it('should show "Add Worktree..." as disabled', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      // Empty worktrees = not a git project, so Add Worktree should be disabled
+      setupMockFetch({ worktrees: [] });
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -144,13 +156,7 @@ describe('ProjectItem', () => {
 
     it('should create AI shell from context menu', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -177,13 +183,6 @@ describe('ProjectItem', () => {
           }),
       });
 
-      // Mock refetch after create
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
-
       await user.click(screen.getByText('Add AI Shell'));
 
       // Verify API was called
@@ -202,13 +201,7 @@ describe('ProjectItem', () => {
 
     it('should create Bash shell from context menu', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -262,13 +255,7 @@ describe('ProjectItem', () => {
   describe('Click zone separation', () => {
     it('chevron click expands shells but does NOT open context sidebar', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -284,13 +271,7 @@ describe('ProjectItem', () => {
 
     it('name click opens context sidebar but does NOT expand project', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -310,13 +291,7 @@ describe('ProjectItem', () => {
 
     it('closes context sidebar when same project name clicked while open (toggle)', async () => {
       const user = userEvent.setup();
-
-      // Mock getShells for this project
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({ shells: [] }),
-      });
+      setupMockFetch();
 
       // First, open the context sidebar for this project
       useUIStore.getState().openContextSidebar('project', 'proj-1');
@@ -336,13 +311,7 @@ describe('ProjectItem', () => {
   // Regression test: Project deletion must call the API
   it('deletes project via API when delete is clicked from context menu', async () => {
     const user = userEvent.setup();
-
-    // Mock getShells
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
-    });
+    setupMockFetch();
 
     // Pre-populate projects cache
     queryClient.setQueryData(['projects'], [mockProject]);
@@ -433,8 +402,8 @@ describe('ProjectItem', () => {
         }),
     });
 
-    // Click add shell button
-    const addShellButton = screen.getByTestId('add-shell-button');
+    // Click add shell button (always visible, no hover needed)
+    const addShellButton = await screen.findByTestId('add-shell-button');
     await user.click(addShellButton);
 
     // REGRESSION: Verify API was called to create the shell
@@ -449,13 +418,7 @@ describe('ProjectItem', () => {
 
   it('sets created shell as active', async () => {
     const user = userEvent.setup();
-
-    // Mock getShells
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
-    });
+    setupMockFetch();
 
     renderWithProviders(<ProjectItem project={mockProject} />, queryClient);
 
@@ -499,8 +462,8 @@ describe('ProjectItem', () => {
         }),
     });
 
-    // Click add shell button
-    const addShellButton = screen.getByTestId('add-shell-button');
+    // Click add shell button (always visible, no hover needed)
+    const addShellButton = await screen.findByTestId('add-shell-button');
     await user.click(addShellButton);
 
     // Verify the shell was set as active
@@ -521,12 +484,8 @@ describe('ProjectItem', () => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Mock getShells
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [mockShell] }),
-    });
+    // Setup mock with the shell data
+    setupMockFetch({ shells: [mockShell] });
 
     // Pre-expand the project
     useUIStore.getState().toggleProjectExpanded(mockProject.id);

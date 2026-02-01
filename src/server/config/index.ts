@@ -15,6 +15,7 @@ interface ConfigFile {
   logLevel?: ServerConfig['logLevel'];
   httpsCert?: string;
   httpsKey?: string;
+  remoteLoggerUrl?: string;
 }
 
 /**
@@ -82,6 +83,9 @@ export function loadConfig(): ServerConfig {
   const httpsCert = process.env.AIFORGE_HTTPS_CERT ?? configFile?.httpsCert;
   const httpsKey = process.env.AIFORGE_HTTPS_KEY ?? configFile?.httpsKey;
 
+  // Remote logger URL for PTY daemon debugging
+  const remoteLoggerUrl = process.env.AIFORGE_REMOTE_LOGGER_URL ?? configFile?.remoteLoggerUrl;
+
   const config: ServerConfig = {
     port: envPort ?? configFile?.port ?? randomPort(),
     host: process.env.AIFORGE_HOST ?? configFile?.host ?? '0.0.0.0',
@@ -96,6 +100,9 @@ export function loadConfig(): ServerConfig {
   }
   if (httpsKey) {
     config.httpsKey = httpsKey;
+  }
+  if (remoteLoggerUrl) {
+    config.remoteLoggerUrl = remoteLoggerUrl;
   }
 
   return config;

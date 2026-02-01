@@ -1,7 +1,7 @@
 /**
  * REST API client for AIForge backend
  */
-import type { Project, Shell, ShellType, WorkspaceState } from '@shared/types';
+import type { Project, Shell, ShellType, WorkspaceState, WorktreeWithStatus, WorktreeMetadata, FileTreeNode, CustomUrl } from '@shared/types';
 import { ApiError } from './errors';
 import { log } from './logger';
 
@@ -22,6 +22,18 @@ export interface ShellsResponse {
 
 export interface ShellResponse {
   shell: Shell;
+}
+
+export interface WorktreesResponse {
+  worktrees: WorktreeWithStatus[];
+}
+
+export interface WorktreeResponse {
+  worktree: WorktreeWithStatus;
+}
+
+export interface MainBranchResponse {
+  branch: string;
 }
 
 export interface AuthStatusResponse {
@@ -239,6 +251,63 @@ export async function deleteProject(id: string): Promise<undefined> {
   });
 }
 
+// Worktrees API
+export async function getWorktrees(projectId: string): Promise<WorktreesResponse> {
+  return request<WorktreesResponse>(`/projects/${projectId}/worktrees`);
+}
+
+export async function getMainBranch(projectId: string): Promise<MainBranchResponse> {
+  return request<MainBranchResponse>(`/projects/${projectId}/worktrees/main`);
+}
+
+export async function createWorktree(
+  projectId: string,
+  name: string,
+  baseBranch?: string,
+): Promise<WorktreeResponse> {
+  return request<WorktreeResponse>(`/projects/${projectId}/worktrees`, {
+    method: 'POST',
+    body: JSON.stringify({ name, baseBranch }),
+  });
+}
+
+export interface DeleteWorktreeResponse {
+  success: boolean;
+}
+
+export async function deleteWorktree(
+  projectId: string,
+  worktreePath: string,
+  force?: boolean,
+): Promise<DeleteWorktreeResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  const queryParams = force ? '?force=true' : '';
+  return request<DeleteWorktreeResponse>(`/projects/${projectId}/worktrees/${encodedPath}${queryParams}`, {
+    method: 'DELETE',
+  });
+}
+
+export interface UpdateWorktreeMetadataRequest {
+  done: boolean;
+  projectId?: string;
+}
+
+export interface UpdateWorktreeMetadataResponse {
+  success: boolean;
+  metadata: WorktreeMetadata;
+}
+
+export async function updateWorktreeMetadata(
+  worktreePath: string,
+  updates: UpdateWorktreeMetadataRequest,
+): Promise<UpdateWorktreeMetadataResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  return request<UpdateWorktreeMetadataResponse>(`/worktrees/${encodedPath}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
 // Shells API
 export async function getShells(projectId: string): Promise<ShellsResponse> {
   return request<ShellsResponse>(`/projects/${projectId}/shells`);
@@ -252,10 +321,80 @@ export async function createShell(
   projectId: string,
   name?: string,
   type: ShellType = 'bash',
+  worktreePath?: string,
 ): Promise<ShellResponse> {
   return request<ShellResponse>(`/projects/${projectId}/shells`, {
     method: 'POST',
-    body: JSON.stringify({ name, type }),
+    body: JSON.stringify({ name, type, worktreePath }),
+  });
+}
+
+/**
+ * Get shells for a specific worktree
+ * Phase 6: Shell-worktree association
+ */
+export async function getShellsByWorktree(worktreePath: string): Promise<ShellsResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  return request<ShellsResponse>(`/worktrees/${encodedPath}/shells`);
+}
+
+// ============================================================================
+// Worktree Files API (Phase 7)
+// ============================================================================
+
+export interface WorktreeFilesResponse {
+  files: FileTreeNode[];
+  gitModifiedOnly: boolean;
+}
+
+/**
+ * Get file tree for a worktree
+ * Phase 7: Worktree context sidebar files tab
+ */
+export async function getWorktreeFiles(worktreePath: string, gitModifiedOnly = true): Promise<WorktreeFilesResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  const params = gitModifiedOnly ? '' : '?gitModifiedOnly=false';
+  return request<WorktreeFilesResponse>(`/worktrees/${encodedPath}/files${params}`);
+}
+
+// ============================================================================
+// Worktree URLs API (Phase 7)
+// ============================================================================
+
+export interface WorktreeUrlsResponse {
+  urls: CustomUrl[];
+}
+
+export interface WorktreeUrlResponse {
+  url: CustomUrl;
+}
+
+/**
+ * Get all URLs for a worktree
+ */
+export async function getWorktreeUrls(worktreePath: string): Promise<WorktreeUrlsResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  return request<WorktreeUrlsResponse>(`/worktrees/${encodedPath}/urls`);
+}
+
+/**
+ * Add a URL to a worktree
+ */
+export async function addWorktreeUrl(worktreePath: string, name: string, url: string): Promise<WorktreeUrlResponse> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  return request<WorktreeUrlResponse>(`/worktrees/${encodedPath}/urls`, {
+    method: 'POST',
+    body: JSON.stringify({ name, url }),
+  });
+}
+
+/**
+ * Delete a URL from a worktree
+ */
+export async function deleteWorktreeUrl(worktreePath: string, urlId: string): Promise<{ success: boolean }> {
+  const encodedPath = encodeURIComponent(worktreePath);
+  return request<{ success: boolean }>(`/worktrees/${encodedPath}/urls/${urlId}`, {
+    method: 'DELETE',
   });
 }
 
@@ -371,9 +510,19 @@ export const api = {
   createProject,
   updateProject,
   deleteProject,
+  getWorktrees,
+  getMainBranch,
+  createWorktree,
+  deleteWorktree,
+  updateWorktreeMetadata,
+  getWorktreeFiles,
+  getWorktreeUrls,
+  addWorktreeUrl,
+  deleteWorktreeUrl,
   getShells,
   getShell,
   createShell,
+  getShellsByWorktree,
   deleteShell,
   updateShell,
   startShell,

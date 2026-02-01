@@ -347,12 +347,28 @@ export class ShellSessionManager extends EventEmitter {
     if (this._ptyPool.usePersistentDaemons && shell.socketPath) {
       const exists = await socketExists(shell.socketPath);
       if (exists) {
-        const client = await this._ptyPool.attach(shell.id, shell.cwd);
-        if (client) {
-          return client;
+        try {
+          const client = await this._ptyPool.attach(shell.id, shell.cwd);
+          if (client) {
+            return client;
+          }
+        } catch (attachErr) {
+          // Check if this is a stale socket (ECONNREFUSED means no daemon listening)
+          const isStaleSocket =
+            attachErr instanceof Error &&
+            'code' in attachErr &&
+            (attachErr as NodeJS.ErrnoException).code === 'ECONNREFUSED';
+
+          if (isStaleSocket) {
+            logger.warn({ shellId: shell.id, socketPath: shell.socketPath },
+              'Detected stale socket during attach, will spawn new daemon');
+          } else {
+            // Other error (timeout, permission, etc.) - propagate it
+            throw attachErr;
+          }
         }
       }
-      // Socket was stale, clear it
+      // Socket was stale or didn't exist, clear it from shell record
       await this._shellStore.update(shell.id, { socketPath: null });
     }
 

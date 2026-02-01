@@ -272,6 +272,13 @@ export class TerminalHandler {
     const session = this._sessionManager.getSession(shellId);
     if (!session) return;
 
+    // Check if already subscribed to this shell to prevent duplicate subscriptions
+    const existingSubscriptions = this._clientSubscriptions.get(ws);
+    if (existingSubscriptions?.some((s) => s.shellId === shellId)) {
+      // Already subscribed, skip
+      return;
+    }
+
     // Set up data forwarding
     const dataCleanup = session.onData((data: string) => {
       this._sendOutput(ws, shellId, data);

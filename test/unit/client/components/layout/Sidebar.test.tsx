@@ -10,6 +10,59 @@ import type { QueryClient } from '@tanstack/react-query';
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/**
+ * Setup mock fetch to handle all API calls for Sidebar/ProjectItem
+ * This is needed because ProjectItem now calls multiple APIs:
+ * - GET /api/projects
+ * - GET /api/projects/:id/shells
+ * - GET /api/projects/:id/worktrees
+ */
+function setupMockFetch(options: {
+  projects?: unknown[];
+  shells?: unknown[];
+  worktrees?: unknown[];
+  mainBranch?: string;
+} = {}): void {
+  const { projects = [], shells = [], worktrees = [], mainBranch = 'main' } = options;
+
+  mockFetch.mockImplementation((url: string) => {
+    if (url === '/api/projects') {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ projects }),
+      });
+    }
+    if (url.includes('/shells')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ shells }),
+      });
+    }
+    if (url.includes('/worktrees/main')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ branch: mainBranch }),
+      });
+    }
+    if (url.includes('/worktrees')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ worktrees }),
+      });
+    }
+    // Default response for unknown URLs
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+    });
+  });
+}
+
 describe('Sidebar', () => {
   let queryClient: QueryClient;
 
@@ -87,18 +140,11 @@ describe('Sidebar', () => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Mock getProjects
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ projects: [mockProject] }),
-    });
-
-    // Mock getShells for this project (called immediately when ProjectItem renders)
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [mockShell] }),
+    // Setup mocks to handle all API endpoints ProjectItem calls
+    setupMockFetch({
+      projects: [mockProject],
+      shells: [mockShell],
+      worktrees: [],
     });
 
     renderWithProviders(<Sidebar />, queryClient);
@@ -108,8 +154,8 @@ describe('Sidebar', () => {
       expect(screen.getByText('proj')).toBeInTheDocument();
     });
 
-    // Click to expand
-    await user.click(screen.getByText('proj'));
+    // Click chevron to expand (clicking name opens context sidebar, not expand)
+    await user.click(screen.getByTestId('project-chevron'));
 
     // Wait for shells to load and show (shells are fetched on render, shown on expand)
     await waitFor(() => {
@@ -165,18 +211,11 @@ describe('Sidebar', () => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Mock getProjects
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ projects: [mockProject] }),
-    });
-
-    // Mock getShells (called immediately when ProjectItem renders)
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ shells: [] }),
+    // Setup mocks to handle all API endpoints ProjectItem calls
+    setupMockFetch({
+      projects: [mockProject],
+      shells: [],
+      worktrees: [],
     });
 
     renderWithProviders(<Sidebar />, queryClient);
@@ -186,8 +225,8 @@ describe('Sidebar', () => {
       expect(screen.getByText('proj')).toBeInTheDocument();
     });
 
-    // Expand the project first
-    await user.click(screen.getByText('proj'));
+    // Expand the project first (click chevron, not name)
+    await user.click(screen.getByTestId('project-chevron'));
 
     // Add shell button should be visible
     const addShellButton = screen.getByTestId('add-shell-button');

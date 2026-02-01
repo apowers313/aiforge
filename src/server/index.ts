@@ -18,9 +18,10 @@ import { AuthService } from './services/auth/AuthService.js';
 import { ProjectService } from './services/project/ProjectService.js';
 import { ProjectMetadataService } from './services/project/ProjectMetadataService.js';
 import { ProjectUrlsService } from './services/project/ProjectUrlsService.js';
+import { WorktreeService } from './services/project/WorktreeService.js';
 import { ShellService } from './services/shell/ShellService.js';
-import { ShellContextService } from './services/shell/ShellContextService.js';
 import { ShellSessionManager } from './services/shell/ShellSessionManager.js';
+import { ProjectContextService } from './services/project/ProjectContextService.js';
 import { FilesystemService } from './services/filesystem/FilesystemService.js';
 import { FileTreeService } from './services/filesystem/FileTreeService.js';
 import { WorkspaceStateService } from './services/workspace/WorkspaceStateService.js';
@@ -52,10 +53,14 @@ export async function createApp(): Promise<AppResult> {
 
   // Initialize PTY pool for real terminal sessions with scrollback persistence
   // Enable persistent daemons so shells survive server restarts
-  const ptyPool = new PtyPool({
+  const ptyPoolOptions: import('./services/pty/PtyPool.js').PtyPoolOptions = {
     scrollbackStore: storage.scrollback,
     usePersistentDaemons: true,
-  });
+  };
+  if (config.remoteLoggerUrl) {
+    ptyPoolOptions.remoteLoggerUrl = config.remoteLoggerUrl;
+  }
+  const ptyPool = new PtyPool(ptyPoolOptions);
 
   // Initialize services
   const authService = new AuthService({
@@ -75,14 +80,18 @@ export async function createApp(): Promise<AppResult> {
     projectUrlsStore: storage.projectUrls,
   });
 
+  const worktreeService = new WorktreeService({
+    projectStore: storage.projects,
+  });
+
   const shellService = new ShellService({
     shellStore: storage.shells,
     projectStore: storage.projects,
     ptyPool,
   });
 
-  const shellContextService = new ShellContextService({
-    shellContextStore: storage.shellContext,
+  const projectContextService = new ProjectContextService({
+    projectContextStore: storage.projectContext,
   });
 
   // Initialize ShellSessionManager for terminal session orchestration
@@ -120,11 +129,14 @@ export async function createApp(): Promise<AppResult> {
     projectService,
     projectMetadataService,
     projectUrlsService,
+    projectContextService,
+    worktreeService,
     shellService,
-    shellContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,
+    worktreeMetadataStore: storage.worktreeMetadata,
+    worktreeUrlsStore: storage.worktreeUrls,
   }));
 
   // Serve static frontend assets in production

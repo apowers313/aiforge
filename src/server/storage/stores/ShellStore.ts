@@ -32,7 +32,17 @@ export class ShellStore {
 
   async getByProjectId(projectId: string): Promise<Shell[]> {
     const data = await this.store.read();
-    return data.shells.filter((s) => s.projectId === projectId);
+    // Only return direct project shells, not shells belonging to worktrees
+    return data.shells.filter((s) => s.projectId === projectId && s.worktreePath === null);
+  }
+
+  /**
+   * Get all shells for a worktree
+   * Phase 6: Returns shells associated with a specific worktree path
+   */
+  async getByWorktreePath(worktreePath: string): Promise<Shell[]> {
+    const data = await this.store.read();
+    return data.shells.filter((s) => s.worktreePath === worktreePath);
   }
 
   async create(shell: Shell): Promise<void> {
@@ -42,16 +52,30 @@ export class ShellStore {
     }));
   }
 
-  async getNextShellNumber(): Promise<number> {
-    let counter = 0;
-    await this.store.update((data) => {
-      counter = data.shellCounter + 1;
-      return {
-        ...data,
-        shellCounter: counter,
-      };
-    });
-    return counter;
+  /**
+   * Get the next shell number for a given type.
+   * Scans existing shells to find the max number used for this type,
+   * ensuring uniqueness even after deletions or data migrations.
+   *
+   * @param type - Shell type ('bash' or 'ai')
+   * @returns Next available number for this shell type
+   */
+  async getNextShellNumber(type: 'bash' | 'ai'): Promise<number> {
+    const data = await this.store.read();
+    const prefix = `${type}-`;
+
+    let maxNumber = 0;
+    for (const shell of data.shells) {
+      if (shell.name.startsWith(prefix)) {
+        const numStr = shell.name.slice(prefix.length);
+        const num = parseInt(numStr, 10);
+        if (!isNaN(num) && num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    }
+
+    return maxNumber + 1;
   }
 
   async update(id: string, updates: Partial<Pick<Shell, 'name' | 'status' | 'pid' | 'cwd' | 'lastActivityAt' | 'done' | 'socketPath'>>): Promise<Shell | null> {

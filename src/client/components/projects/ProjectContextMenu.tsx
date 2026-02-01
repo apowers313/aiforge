@@ -1,6 +1,14 @@
+/**
+ * ProjectContextMenu - Context menu for project items
+ *
+ * Extends BaseSidebarContextMenu with project-specific items:
+ * - Add Worktree
+ * - Show/Hide Worktree Status
+ */
 import { Menu, Tooltip } from '@mantine/core';
-import { IconSparkles, IconPlus, IconFolderPlus, IconTrash } from '@tabler/icons-react';
+import { IconFolderPlus, IconEye, IconEyeOff } from '@tabler/icons-react';
 import type { Project } from '@shared/types';
+import { BaseSidebarContextMenu } from '@client/components/common/BaseSidebarContextMenu';
 
 interface ProjectContextMenuProps {
   project: Project;
@@ -12,6 +20,8 @@ interface ProjectContextMenuProps {
   onAddWorktree?: () => void;
   onDelete: () => void;
   worktreeEnabled?: boolean;
+  worktreeStatusHidden?: boolean;
+  onToggleWorktreeStatus?: () => void;
 }
 
 export function ProjectContextMenu({
@@ -24,21 +34,9 @@ export function ProjectContextMenu({
   onAddWorktree,
   onDelete,
   worktreeEnabled = false,
+  worktreeStatusHidden = false,
+  onToggleWorktreeStatus,
 }: ProjectContextMenuProps): React.ReactElement | null {
-  if (!opened) {
-    return null;
-  }
-
-  const handleAddAiShell = (): void => {
-    onAddAiShell();
-    onClose();
-  };
-
-  const handleAddBashShell = (): void => {
-    onAddBashShell();
-    onClose();
-  };
-
   const handleAddWorktree = (): void => {
     if (worktreeEnabled && onAddWorktree) {
       onAddWorktree();
@@ -46,66 +44,46 @@ export function ProjectContextMenu({
     }
   };
 
-  const handleDelete = (): void => {
-    onDelete();
-    onClose();
+  const handleToggleWorktreeStatus = (): void => {
+    if (onToggleWorktreeStatus) {
+      onToggleWorktreeStatus();
+      onClose();
+    }
   };
 
+  // Project-specific menu items
+  const middleItems = (
+    <>
+      <Tooltip label="Coming soon" disabled={worktreeEnabled} position="right" withArrow>
+        <Menu.Item
+          leftSection={<IconFolderPlus size={14} />}
+          onClick={handleAddWorktree}
+          disabled={!worktreeEnabled}
+        >
+          Add Worktree...
+        </Menu.Item>
+      </Tooltip>
+      {onToggleWorktreeStatus && (
+        <Menu.Item
+          leftSection={worktreeStatusHidden ? <IconEye size={14} /> : <IconEyeOff size={14} />}
+          onClick={handleToggleWorktreeStatus}
+        >
+          {worktreeStatusHidden ? 'Show Worktree Status' : 'Hide Worktree Status'}
+        </Menu.Item>
+      )}
+    </>
+  );
+
   return (
-    <Menu
+    <BaseSidebarContextMenu
       opened={opened}
+      position={position}
       onClose={onClose}
-      position="bottom-start"
-      withinPortal
-    >
-      <Menu.Target>
-        <div
-          style={{
-            position: 'fixed',
-            left: position.x,
-            top: position.y,
-            width: 1,
-            height: 1,
-          }}
-        />
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Item
-          leftSection={<IconSparkles size={14} style={{ color: 'var(--mantine-color-violet-4)' }} />}
-          onClick={handleAddAiShell}
-        >
-          Add AI Shell
-        </Menu.Item>
-        <Menu.Item
-          leftSection={<IconPlus size={14} />}
-          onClick={handleAddBashShell}
-        >
-          Add Bash Shell
-        </Menu.Item>
-        <Menu.Divider />
-        <Tooltip
-          label="Coming soon"
-          disabled={worktreeEnabled}
-          position="right"
-          withArrow
-        >
-          <Menu.Item
-            leftSection={<IconFolderPlus size={14} />}
-            onClick={handleAddWorktree}
-            disabled={!worktreeEnabled}
-          >
-            Add Worktree...
-          </Menu.Item>
-        </Tooltip>
-        <Menu.Divider />
-        <Menu.Item
-          color="red"
-          leftSection={<IconTrash size={14} />}
-          onClick={handleDelete}
-        >
-          Delete Project
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
+      onAddAiShell={onAddAiShell}
+      onAddBashShell={onAddBashShell}
+      middleItems={middleItems}
+      dangerLabel="Delete Project"
+      onDangerAction={onDelete}
+    />
   );
 }

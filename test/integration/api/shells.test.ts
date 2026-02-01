@@ -55,7 +55,7 @@ describe('Shells API', () => {
         .expect(201);
 
       const body = response.body as ShellResponse;
-      expect(body.shell.name).toMatch(/^shell-\d+$/);
+      expect(body.shell.name).toMatch(/^bash-\d+$/); // default type is 'bash'
     });
 
     it('returns 404 for non-existent project', async () => {

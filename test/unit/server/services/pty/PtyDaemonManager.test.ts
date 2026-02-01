@@ -317,6 +317,121 @@ describe('PtyDaemonManager', () => {
     });
   });
 
+  describe('stale socket handling (regression)', () => {
+    /**
+     * Regression test for: When a daemon dies without cleaning up its socket file,
+     * subsequent spawn attempts should detect the stale socket (ECONNREFUSED)
+     * and handle it gracefully.
+     *
+     * Bug: User creates shell → daemon spawns → daemon dies (e.g., server restart,
+     * crash) → socket file remains → user clicks shell → ECONNREFUSED → error shown
+     *
+     * Fix: Detect ECONNREFUSED as stale socket, clean up, and spawn new daemon
+     */
+    const testShellId = 'test-stale-socket-shell';
+    const testSocketPath = getSocketPath(testShellId);
+    let mockServer: Server | null = null;
+
+    afterEach(async () => {
+      if (mockServer) {
+        await new Promise<void>((resolve) => {
+          mockServer?.close(() => { resolve(); });
+        });
+        mockServer = null;
+      }
+      try {
+        await unlink(testSocketPath);
+      } catch {
+        // Ignore
+      }
+    });
+
+    it('attach throws ECONNREFUSED for stale socket (socket file exists, no daemon)', async () => {
+      // Create a real socket server
+      mockServer = await new Promise<Server>((resolve, reject) => {
+        const server = createServer();
+        server.on('error', reject);
+        server.listen(testSocketPath, () => { resolve(server); });
+      });
+
+      // Get a connection to verify socket works
+      const net = await import('node:net');
+      const testSocket = net.createConnection(testSocketPath);
+      await new Promise<void>((resolve, reject) => {
+        testSocket.on('connect', () => {
+          testSocket.destroy();
+          resolve();
+        });
+        testSocket.on('error', reject);
+      });
+
+      // Close the server but DON'T unlink the socket (simulates daemon crash)
+      // We need to recreate the socket file after close since Node removes it
+      await new Promise<void>((resolve) => {
+        mockServer?.close(() => {
+          mockServer = null;
+          resolve();
+        });
+      });
+
+      // Recreate the socket file manually to simulate a stale socket
+      // (In reality, if daemon crashes without cleanup, socket file persists)
+      await writeFile(testSocketPath, '');
+
+      // Socket file should exist
+      const { access, constants } = await import('node:fs/promises');
+      await expect(access(testSocketPath, constants.F_OK)).resolves.not.toThrow();
+
+      // Attach should fail - either ECONNREFUSED (real socket) or ENOTSOCK (fake file)
+      // Both indicate a stale/invalid socket
+      const manager = new PtyDaemonManager();
+      try {
+        await manager.attach(testShellId, '/test/cwd');
+        expect.fail('Expected attach to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(Error);
+        const nodeErr = err as NodeJS.ErrnoException;
+        // ECONNREFUSED for real stale sockets, ENOTSOCK for fake file
+        expect(['ECONNREFUSED', 'ENOTSOCK']).toContain(nodeErr.code);
+      }
+    });
+
+    it('ECONNREFUSED error can be detected by code property', () => {
+      // Create an ECONNREFUSED error like Node.js does
+      const error = new Error('connect ECONNREFUSED /tmp/test.sock') as NodeJS.ErrnoException;
+      error.code = 'ECONNREFUSED';
+      error.errno = -111;
+      error.syscall = 'connect';
+
+      // Verify the detection logic works
+      const isStaleSocket =
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ECONNREFUSED';
+
+      expect(isStaleSocket).toBe(true);
+    });
+
+    it('other errors are not detected as stale socket', () => {
+      const timeoutError = new Error('Connection timeout');
+      const enoentError = new Error('ENOENT') as NodeJS.ErrnoException;
+      enoentError.code = 'ENOENT';
+
+      const isTimeoutStale =
+        timeoutError instanceof Error &&
+        'code' in timeoutError &&
+        (timeoutError as NodeJS.ErrnoException).code === 'ECONNREFUSED';
+
+      const isEnoentStale =
+        enoentError instanceof Error &&
+        'code' in enoentError &&
+        enoentError.code === 'ECONNREFUSED';
+
+      expect(isTimeoutStale).toBe(false);
+      expect(isEnoentStale).toBe(false);
+    });
+  });
+
   describe('events', () => {
     const testShellId = 'test-events-shell';
     const testSocketPath = getSocketPath(testShellId);

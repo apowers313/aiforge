@@ -6,8 +6,8 @@ import { ShellItem } from './ShellItem';
 interface ShellListProps {
   shells: Shell[];
   projectId: string;
-  /** Offset in pixels for positioning the AI activity indicator in the left gutter */
-  indicatorOffset?: number;
+  /** Tree depth for shell items (default: 1) */
+  depth?: number;
 }
 
 /**
@@ -26,7 +26,7 @@ function sortShells(shells: Shell[]): Shell[] {
   });
 }
 
-export function ShellList({ shells, projectId, indicatorOffset }: ShellListProps): React.ReactElement {
+export function ShellList({ shells, projectId, depth = 1 }: ShellListProps): React.ReactElement {
   const sortedShells = useMemo(() => sortShells(shells), [shells]);
 
   if (shells.length === 0) {
@@ -38,9 +38,9 @@ export function ShellList({ shells, projectId, indicatorOffset }: ShellListProps
   }
 
   return (
-    <Stack gap={2}>
+    <Stack gap={0}>
       {sortedShells.map((shell) => (
-        <ShellItem key={shell.id} shell={shell} projectId={projectId} indicatorOffset={indicatorOffset} />
+        <ShellItem key={shell.id} shell={shell} projectId={projectId} depth={depth} />
       ))}
     </Stack>
   );

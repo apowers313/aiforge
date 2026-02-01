@@ -48,23 +48,31 @@ export function useAllShells(projectIds: string[]): UseQueryResult<Shell[]> {
 
 /**
  * Hook to create a new shell
+ * Phase 6: Now supports optional worktreePath for shell-worktree association
  */
-export function useCreateShell(): UseMutationResult<{ shell: Shell }, Error, { projectId: string; name?: string; type?: ShellType }> {
+export function useCreateShell(): UseMutationResult<{ shell: Shell }, Error, { projectId: string; name?: string; type?: ShellType; worktreePath?: string }> {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ projectId, name, type }: { projectId: string; name?: string; type?: ShellType }) => {
-      shellLog.info({ projectId, name, type }, 'Creating shell');
-      return api.createShell(projectId, name, type);
+    mutationFn: ({ projectId, name, type, worktreePath }: { projectId: string; name?: string; type?: ShellType; worktreePath?: string }) => {
+      shellLog.info({ projectId, name, type, worktreePath }, 'Creating shell');
+      return api.createShell(projectId, name, type, worktreePath);
     },
     onSuccess: (data) => {
-      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name, type: data.shell.type }, 'Shell created');
+      shellLog.info({ shellId: data.shell.id, shellName: data.shell.name, type: data.shell.type, worktreePath: data.shell.worktreePath }, 'Shell created');
+      // Invalidate project shells
       void queryClient.invalidateQueries({
         queryKey: queryKeys.shells.byProject(data.shell.projectId),
       });
+      // Phase 6: Also invalidate worktree shells if this shell is associated with a worktree
+      if (data.shell.worktreePath) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.shells.byWorktree(data.shell.worktreePath),
+        });
+      }
     },
-    onError: (error, { projectId, name, type }) => {
-      shellLog.error({ projectId, name, type, error: error.message }, 'Shell creation failed');
+    onError: (error, { projectId, name, type, worktreePath }) => {
+      shellLog.error({ projectId, name, type, worktreePath, error: error.message }, 'Shell creation failed');
     },
   });
 }

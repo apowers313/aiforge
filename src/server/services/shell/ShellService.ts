@@ -118,8 +118,12 @@ export class ShellService {
 
   /**
    * Create a new shell for a project
+   * @param projectId - The project ID
+   * @param name - Optional name for the shell
+   * @param type - Shell type (bash or ai)
+   * @param worktreePath - Optional worktree path to associate with the shell (Phase 6)
    */
-  async create(projectId: string, name?: string, type: ShellType = 'bash'): Promise<Shell> {
+  async create(projectId: string, name?: string, type: ShellType = 'bash', worktreePath?: string): Promise<Shell> {
     // Verify project exists
     const project = await this.projectStore.getById(projectId);
     if (!project) {
@@ -129,29 +133,41 @@ export class ShellService {
     // Auto-generate name if not provided
     let shellName = name;
     if (!shellName) {
-      const shellNumber = await this.shellStore.getNextShellNumber();
-      const prefix = type === 'ai' ? 'ai' : 'shell';
-      shellName = `${prefix}-${String(shellNumber)}`;
+      const shellType = type === 'ai' ? 'ai' : 'bash';
+      const shellNumber = await this.shellStore.getNextShellNumber(shellType);
+      shellName = `${shellType}-${String(shellNumber)}`;
     }
+
+    // Phase 6: Use worktreePath as cwd if provided, otherwise use project path
+    const cwd = worktreePath ?? project.path;
 
     const now = new Date().toISOString();
     const shell: Shell = {
       id: randomUUID(),
       projectId,
       name: shellName,
-      cwd: project.path,
+      cwd,
       status: 'inactive',
       type,
       pid: null,
       socketPath: null,
       lastActivityAt: null,
       done: false,
+      worktreePath: worktreePath ?? null,
       createdAt: now,
       updatedAt: now,
     };
 
     await this.shellStore.create(shell);
     return shell;
+  }
+
+  /**
+   * Get all shells for a worktree
+   * Phase 6: Returns shells associated with a specific worktree path
+   */
+  async getByWorktreePath(worktreePath: string): Promise<Shell[]> {
+    return this.shellStore.getByWorktreePath(worktreePath);
   }
 
   /**

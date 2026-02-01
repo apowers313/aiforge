@@ -1,10 +1,11 @@
 /**
  * FileTreeService - File tree with git status and preview functionality
+ * Phase 7: Refactored to use GitService for centralized git operations
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, basename, extname } from 'node:path';
-import { simpleGit } from 'simple-git';
 import type { FileTreeNode, FilePreview, GitStatus } from '@shared/types/index.js';
+import { GitService } from '../git/GitService.js';
 
 export interface FileTreeOptions {
   gitModifiedOnly?: boolean;
@@ -114,11 +115,17 @@ export class FileTreeService {
 
   /**
    * Get only git-modified files, organized into folder structure
+   * Phase 7: Refactored to use GitService for centralized git operations
    */
   private async getGitModifiedFiles(projectPath: string): Promise<FileTreeNode[]> {
     try {
-      const git = simpleGit(projectPath);
-      const status = await git.status();
+      const gitService = new GitService(projectPath);
+      const status = await gitService.getStatus();
+
+      if (!status) {
+        // Not a git repository
+        return [];
+      }
 
       const flatFiles: FileTreeNode[] = [];
 
@@ -254,13 +261,19 @@ export class FileTreeService {
 
   /**
    * Build a map of file paths to their git status
+   * Phase 7: Refactored to use GitService for centralized git operations
    */
   private async getGitStatusMap(projectPath: string): Promise<Map<string, GitStatus>> {
     const statusMap = new Map<string, GitStatus>();
 
     try {
-      const git = simpleGit(projectPath);
-      const status = await git.status();
+      const gitService = new GitService(projectPath);
+      const status = await gitService.getStatus();
+
+      if (!status) {
+        // Not a git repository
+        return statusMap;
+      }
 
       for (const filePath of status.modified) {
         statusMap.set(filePath, 'modified');

@@ -91,11 +91,14 @@ describe('ContextSidebar', () => {
     expect(screen.getByText('Files')).toBeInTheDocument();
   });
 
-  it('shows TODOs/Notes tabs for shell type', () => {
+  it('shows no tabs for shell type (TODOs/Notes moved to project)', () => {
     useUIStore.getState().openContextSidebar('shell', 'shell-1');
     renderWithProviders(<ContextSidebar />, queryClient);
-    expect(screen.getByText('TODOs')).toBeInTheDocument();
-    expect(screen.getByText('Notes')).toBeInTheDocument();
+    // Shells no longer have context tabs - TODOs and Notes are now at project level
+    expect(screen.queryByText('TODOs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+    expect(screen.queryByText('URLs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Files')).not.toBeInTheDocument();
   });
 
   it('applies correct width style', () => {
@@ -137,7 +140,7 @@ describe('ContextSidebar', () => {
     it('does not close sidebar when clicking on a menu dropdown (regression test)', async () => {
       const user = userEvent.setup();
 
-      // Mock the shell context API to return a todo
+      // Mock the project context API to return a todo
       mockFetch.mockResolvedValue({
         ok: true,
         json: () =>
@@ -156,8 +159,10 @@ describe('ContextSidebar', () => {
           }),
       });
 
-      // Open sidebar in unpinned mode (overlay)
-      useUIStore.getState().openContextSidebar('shell', 'shell-1');
+      // Open sidebar in unpinned mode (overlay) with project type
+      useUIStore.getState().openContextSidebar('project', 'proj-1');
+      // Switch to TODOs tab
+      useUIStore.getState().setContextSidebarTab('todos');
       expect(useUIStore.getState().contextSidebarPinned).toBe(false);
 
       renderWithProviders(<ContextSidebar />, queryClient);
@@ -199,10 +204,10 @@ describe('ContextSidebar', () => {
       // Sidebar should still be open after clicking menu item
       expect(useUIStore.getState().contextSidebarOpen).toBe(true);
 
-      // Delete should have been called
+      // Delete should have been called on project context endpoint
       await waitFor(() => {
         expect(mockFetch).toHaveBeenCalledWith(
-          '/api/shells/shell-1/todos/todo-1',
+          '/api/projects/proj-1/todos/todo-1',
           expect.objectContaining({ method: 'DELETE' }),
         );
       });
@@ -216,7 +221,7 @@ describe('ContextSidebar', () => {
         json: () => Promise.resolve({ todos: [], notes: '' }),
       });
 
-      useUIStore.getState().openContextSidebar('shell', 'shell-1');
+      useUIStore.getState().openContextSidebar('project', 'proj-1');
       renderWithProviders(
         <div>
           <div data-testid="outside-element">Outside</div>

@@ -249,8 +249,8 @@ describe('uiStore', () => {
     it('resets to default tab when opening with shell type', () => {
       useUIStore.getState().setContextSidebarTab('files');
       useUIStore.getState().openContextSidebar('shell', 'shell-1');
-      // When opening shell, should reset to 'todos' (first shell tab)
-      expect(useUIStore.getState().contextSidebarActiveTab).toBe('todos');
+      // When opening shell, should reset to 'urls' (shells no longer have todos/notes tabs)
+      expect(useUIStore.getState().contextSidebarActiveTab).toBe('urls');
     });
 
     it('toggles context sidebar (opens if closed)', () => {
@@ -284,6 +284,106 @@ describe('uiStore', () => {
       // But pinned and width are persisted UI preferences, so they reset too
       expect(useUIStore.getState().contextSidebarPinned).toBe(false);
       expect(useUIStore.getState().contextSidebarWidth).toBe(320);
+    });
+  });
+
+  describe('worktree status visibility', () => {
+    beforeEach(() => {
+      useUIStore.getState().reset();
+    });
+
+    it('starts with empty worktreeStatusHiddenProjects', () => {
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toEqual([]);
+    });
+
+    it('toggles worktree status visibility (hides when shown)', () => {
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toContain('proj-1');
+    });
+
+    it('toggles worktree status visibility (shows when hidden)', () => {
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).not.toContain('proj-1');
+    });
+
+    it('handles multiple projects independently', () => {
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-2');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toContain('proj-1');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toContain('proj-2');
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).not.toContain('proj-1');
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toContain('proj-2');
+    });
+
+    it('isWorktreeStatusHidden returns correct value', () => {
+      expect(useUIStore.getState().isWorktreeStatusHidden('proj-1')).toBe(false);
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      expect(useUIStore.getState().isWorktreeStatusHidden('proj-1')).toBe(true);
+    });
+
+    it('resets worktreeStatusHiddenProjects on reset', () => {
+      useUIStore.getState().toggleWorktreeStatusVisibility('proj-1');
+      useUIStore.getState().reset();
+      expect(useUIStore.getState().worktreeStatusHiddenProjects).toEqual([]);
+    });
+  });
+
+  describe('worktree expanded state', () => {
+    beforeEach(() => {
+      useUIStore.getState().reset();
+    });
+
+    it('starts with empty expandedWorktreePaths', () => {
+      expect(useUIStore.getState().expandedWorktreePaths).toEqual([]);
+    });
+
+    it('toggles worktree expanded state (expands when collapsed)', () => {
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree');
+      expect(useUIStore.getState().expandedWorktreePaths).toContain('/path/to/worktree');
+    });
+
+    it('toggles worktree expanded state (collapses when expanded)', () => {
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree');
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree');
+      expect(useUIStore.getState().expandedWorktreePaths).not.toContain('/path/to/worktree');
+    });
+
+    it('expands multiple worktrees simultaneously', () => {
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-1');
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-2');
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-3');
+
+      const expanded = useUIStore.getState().expandedWorktreePaths;
+      expect(expanded).toContain('/path/to/worktree-1');
+      expect(expanded).toContain('/path/to/worktree-2');
+      expect(expanded).toContain('/path/to/worktree-3');
+      expect(expanded).toHaveLength(3);
+    });
+
+    it('handles worktrees independently (collapse one, keep others)', () => {
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-1');
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-2');
+
+      // Collapse the first one
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree-1');
+
+      const expanded = useUIStore.getState().expandedWorktreePaths;
+      expect(expanded).not.toContain('/path/to/worktree-1');
+      expect(expanded).toContain('/path/to/worktree-2');
+    });
+
+    it('resets expandedWorktreePaths on reset', () => {
+      useUIStore.getState().toggleWorktreeExpanded('/path/to/worktree');
+      useUIStore.getState().reset();
+      expect(useUIStore.getState().expandedWorktreePaths).toEqual([]);
+    });
+
+    it('handles worktree paths with special characters', () => {
+      const specialPath = '/home/user/my project/.worktrees/feature-branch';
+      useUIStore.getState().toggleWorktreeExpanded(specialPath);
+      expect(useUIStore.getState().expandedWorktreePaths).toContain(specialPath);
     });
   });
 });

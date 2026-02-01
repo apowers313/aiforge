@@ -13,8 +13,9 @@ import { AuthService } from '@server/services/auth/AuthService.js';
 import { ProjectService } from '@server/services/project/ProjectService.js';
 import { ProjectMetadataService } from '@server/services/project/ProjectMetadataService.js';
 import { ProjectUrlsService } from '@server/services/project/ProjectUrlsService.js';
+import { WorktreeService } from '@server/services/project/WorktreeService.js';
 import { ShellService } from '@server/services/shell/ShellService.js';
-import { ShellContextService } from '@server/services/shell/ShellContextService.js';
+import { ProjectContextService } from '@server/services/project/ProjectContextService.js';
 import { FilesystemService } from '@server/services/filesystem/FilesystemService.js';
 import { FileTreeService } from '@server/services/filesystem/FileTreeService.js';
 import { WorkspaceStateService } from '@server/services/workspace/WorkspaceStateService.js';
@@ -35,8 +36,9 @@ export interface TestServer {
   projectService: ProjectService;
   projectMetadataService: ProjectMetadataService;
   projectUrlsService: ProjectUrlsService;
+  worktreeService: WorktreeService;
   shellService: ShellService;
-  shellContextService: ShellContextService;
+  projectContextService: ProjectContextService;
   filesystemService: FilesystemService;
   fileTreeService: FileTreeService;
   workspaceStateService: WorkspaceStateService;
@@ -88,13 +90,17 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectUrlsStore: storage.projectUrls,
   });
 
+  const worktreeService = new WorktreeService({
+    projectStore: storage.projects,
+  });
+
   const shellService = new ShellService({
     shellStore: storage.shells,
     projectStore: storage.projects,
   });
 
-  const shellContextService = new ShellContextService({
-    shellContextStore: storage.shellContext,
+  const projectContextService = new ProjectContextService({
+    projectContextStore: storage.projectContext,
   });
 
   const filesystemService = new FilesystemService();
@@ -126,11 +132,13 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectService,
     projectMetadataService,
     projectUrlsService,
+    worktreeService,
     shellService,
-    shellContextService,
+    projectContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,
+    worktreeMetadataStore: storage.worktreeMetadata,
   }));
 
   // Error handling
@@ -183,8 +191,9 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     projectService,
     projectMetadataService,
     projectUrlsService,
+    worktreeService,
     shellService,
-    shellContextService,
+    projectContextService,
     filesystemService,
     fileTreeService,
     workspaceStateService,

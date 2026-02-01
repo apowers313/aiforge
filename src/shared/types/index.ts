@@ -12,6 +12,70 @@ export interface Project {
   updatedAt: string; // ISO 8601 date string
 }
 
+// ============================================================================
+// Git Worktree Types
+// ============================================================================
+
+/**
+ * Git worktree - represents a single worktree in a git repository
+ */
+export interface Worktree {
+  path: string; // Absolute path to worktree directory
+  branch: string; // Branch name (can be '(detached)' for detached HEAD)
+  commit: string; // HEAD commit SHA
+  isMain: boolean; // True if this is the main worktree
+  isLocked: boolean; // True if worktree is locked
+}
+
+/**
+ * Worktree with status information for UI display
+ */
+export interface WorktreeWithStatus extends Worktree {
+  name: string; // Display name (usually branch name or directory name)
+  modifiedCount: number; // Number of modified files
+  ahead: number; // Commits ahead of main branch
+  behind: number; // Commits behind main branch
+}
+
+/**
+ * Request to create a new worktree
+ */
+export interface CreateWorktreeRequest {
+  name: string; // Branch name to create
+  baseBranch?: string; // Base branch to create from (optional, defaults to main/master)
+}
+
+/**
+ * Worktree with UI state (extends WorktreeWithStatus with metadata)
+ * Phase 5: For full UI display including done status
+ */
+export interface WorktreeUI extends WorktreeWithStatus {
+  done: boolean; // Whether the worktree is marked as done
+  projectId: string; // Associated project ID
+}
+
+/**
+ * Worktree metadata persisted in storage
+ * Phase 5: Stores done status and timestamps for each worktree
+ */
+export interface WorktreeMetadata {
+  worktreePath: string; // Absolute path to worktree (unique key)
+  projectId: string; // Associated project ID
+  done: boolean; // Whether the worktree is marked as done
+  createdAt: string; // ISO 8601 date string
+  updatedAt: string; // ISO 8601 date string
+}
+
+/**
+ * Worktree status indicator for UI
+ * Phase 5: Visual status based on shell activity and done state
+ * - 'red': AI shell is idle (waiting for user)
+ * - 'green': AI shell is active (processing)
+ * - 'blue': Worktree is marked as done
+ * - null: No AI shells or status not applicable
+ */
+export type WorktreeStatus = 'red' | 'green' | 'blue' | null;
+
 // Shell status
 export type ShellStatus = 'inactive' | 'active' | 'error';
 
@@ -30,6 +94,7 @@ export interface Shell {
   socketPath: string | null; // Unix socket path for persistent daemon (null if not using daemon)
   lastActivityAt: string | null; // ISO 8601 date string - when shell last had input or output
   done: boolean; // Whether the AI shell is marked as done (only applies to AI shells)
+  worktreePath: string | null; // Phase 6: Path to associated worktree (null = direct project shell)
   createdAt: string; // ISO 8601 date string
   updatedAt: string; // ISO 8601 date string
 }
@@ -146,6 +211,7 @@ export interface ServerConfig {
   logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   httpsCert?: string;  // Path to HTTPS certificate file
   httpsKey?: string;   // Path to HTTPS private key file
+  remoteLoggerUrl?: string;  // URL for remote logger server (for PTY daemon debugging)
 }
 
 // Workspace UI state that syncs across devices
@@ -162,7 +228,7 @@ export interface WorkspaceState {
 }
 
 // Context sidebar types - used for displaying context information
-export type ContextType = 'project' | 'shell';
+export type ContextType = 'project' | 'shell' | 'worktree';
 export type ContextSidebarTab = 'urls' | 'files' | 'todos' | 'notes';
 
 // Custom URL stored per-project (server-persisted via API)
@@ -173,7 +239,7 @@ export interface CustomUrl {
   createdAt: string; // ISO 8601 date string
 }
 
-// TODO item stored per-shell (server-persisted via API)
+// TODO item stored per-project (server-persisted via API)
 export interface TodoItem {
   id: string;
   text: string;
@@ -183,8 +249,8 @@ export interface TodoItem {
   completedAt: string | null; // ISO 8601 date string or null
 }
 
-// Shell context data (server-persisted via API)
-export interface ShellContextData {
+// Project context data (server-persisted via API)
+export interface ProjectContextData {
   todos: TodoItem[];
   notes: string;
 }

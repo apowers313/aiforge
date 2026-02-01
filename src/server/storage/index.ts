@@ -11,7 +11,9 @@ import { SessionStore } from './stores/SessionStore.js';
 import { WorkspaceStateStore } from './stores/WorkspaceStateStore.js';
 import { ScrollbackStore } from './stores/ScrollbackStore.js';
 import { ProjectUrlsStore } from './stores/ProjectUrlsStore.js';
-import { ShellContextStore } from './stores/ShellContextStore.js';
+import { ProjectContextStore } from './stores/ProjectContextStore.js';
+import { WorktreeMetadataStore } from './stores/WorktreeMetadataStore.js';
+import { WorktreeUrlsStore } from './stores/WorktreeUrlsStore.js';
 
 export { JsonStore } from './JsonStore.js';
 export { ProjectStore } from './stores/ProjectStore.js';
@@ -20,7 +22,9 @@ export { SessionStore } from './stores/SessionStore.js';
 export { WorkspaceStateStore } from './stores/WorkspaceStateStore.js';
 export { ScrollbackStore } from './stores/ScrollbackStore.js';
 export { ProjectUrlsStore } from './stores/ProjectUrlsStore.js';
-export { ShellContextStore } from './stores/ShellContextStore.js';
+export { ProjectContextStore } from './stores/ProjectContextStore.js';
+export { WorktreeMetadataStore } from './stores/WorktreeMetadataStore.js';
+export { WorktreeUrlsStore } from './stores/WorktreeUrlsStore.js';
 
 export interface Storage {
   projects: ProjectStore;
@@ -29,7 +33,9 @@ export interface Storage {
   workspaceStates: WorkspaceStateStore;
   scrollback: ScrollbackStore;
   projectUrls: ProjectUrlsStore;
-  shellContext: ShellContextStore;
+  projectContext: ProjectContextStore;
+  worktreeMetadata: WorktreeMetadataStore;
+  worktreeUrls: WorktreeUrlsStore;
 }
 
 /**
@@ -58,7 +64,9 @@ export async function initStorage(): Promise<Storage> {
     workspaceStates: new WorkspaceStateStore(join(dataDir, 'workspace-states.json')),
     scrollback: new ScrollbackStore({ directory: join(dataDir, 'scrollback') }),
     projectUrls: new ProjectUrlsStore(join(dataDir, 'project-urls.json')),
-    shellContext: new ShellContextStore(join(dataDir, 'shell-context.json')),
+    projectContext: new ProjectContextStore(join(dataDir, 'project-context.json')),
+    worktreeMetadata: new WorktreeMetadataStore(join(dataDir, 'worktree-metadata.json')),
+    worktreeUrls: new WorktreeUrlsStore(join(dataDir, 'worktree-urls.json')),
   };
 }
 
@@ -73,6 +81,8 @@ export function createStorage(dataDir: string): Storage {
     workspaceStates: new WorkspaceStateStore(join(dataDir, 'workspace-states.json')),
     scrollback: new ScrollbackStore({ directory: join(dataDir, 'scrollback') }),
     projectUrls: new ProjectUrlsStore(join(dataDir, 'project-urls.json')),
-    shellContext: new ShellContextStore(join(dataDir, 'shell-context.json')),
+    projectContext: new ProjectContextStore(join(dataDir, 'project-context.json')),
+    worktreeMetadata: new WorktreeMetadataStore(join(dataDir, 'worktree-metadata.json')),
+    worktreeUrls: new WorktreeUrlsStore(join(dataDir, 'worktree-urls.json')),
   };
 }

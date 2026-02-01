@@ -217,4 +217,67 @@ describe('ProjectContextMenu', () => {
     expect(screen.queryByText('Add Bash Shell')).not.toBeInTheDocument();
     expect(screen.queryByText('Delete Project')).not.toBeInTheDocument();
   });
+
+  describe('worktree status toggle', () => {
+    it('should show "Hide Worktree Status" when status is visible', () => {
+      renderWithProviders(
+        <ProjectContextMenu
+          project={mockProject}
+          opened={true}
+          position={{ x: 100, y: 100 }}
+          onClose={vi.fn()}
+          onAddAiShell={vi.fn()}
+          onAddBashShell={vi.fn()}
+          onDelete={vi.fn()}
+          worktreeStatusHidden={false}
+          onToggleWorktreeStatus={vi.fn()}
+        />,
+        queryClient,
+      );
+
+      expect(screen.getByText('Hide Worktree Status')).toBeInTheDocument();
+    });
+
+    it('should show "Show Worktree Status" when status is hidden', () => {
+      renderWithProviders(
+        <ProjectContextMenu
+          project={mockProject}
+          opened={true}
+          position={{ x: 100, y: 100 }}
+          onClose={vi.fn()}
+          onAddAiShell={vi.fn()}
+          onAddBashShell={vi.fn()}
+          onDelete={vi.fn()}
+          worktreeStatusHidden={true}
+          onToggleWorktreeStatus={vi.fn()}
+        />,
+        queryClient,
+      );
+
+      expect(screen.getByText('Show Worktree Status')).toBeInTheDocument();
+    });
+
+    it('should call onToggleWorktreeStatus when clicked', async () => {
+      const user = userEvent.setup();
+      const onToggleWorktreeStatus = vi.fn();
+
+      renderWithProviders(
+        <ProjectContextMenu
+          project={mockProject}
+          opened={true}
+          position={{ x: 100, y: 100 }}
+          onClose={vi.fn()}
+          onAddAiShell={vi.fn()}
+          onAddBashShell={vi.fn()}
+          onDelete={vi.fn()}
+          worktreeStatusHidden={false}
+          onToggleWorktreeStatus={onToggleWorktreeStatus}
+        />,
+        queryClient,
+      );
+
+      await user.click(screen.getByText('Hide Worktree Status'));
+      expect(onToggleWorktreeStatus).toHaveBeenCalled();
+    });
+  });
 });

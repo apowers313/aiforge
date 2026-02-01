@@ -35,6 +35,7 @@ export class PtyDaemonClient extends EventEmitter {
   private _rows: number;
   private _isConnected = false;
   private _isReady = false;
+  private _receivedExitMessage = false;
 
   constructor(id: string, cwd: string, cols = 80, rows = 24) {
     super();
@@ -94,9 +95,11 @@ export class PtyDaemonClient extends EventEmitter {
         this._isConnected = false;
         this._isReady = false;
         this._socket = null;
-        // Emit exit if we didn't get an explicit exit message
-        // This handles daemon crashes
-        this.emit('exit', { exitCode: -1 });
+        // Emit exit only if we didn't get an explicit exit message from the daemon
+        // This handles daemon crashes or unexpected disconnections
+        if (!this._receivedExitMessage) {
+          this.emit('exit', { exitCode: -1 });
+        }
       });
 
       // Timeout for initial connection
@@ -127,6 +130,7 @@ export class PtyDaemonClient extends EventEmitter {
         break;
 
       case 'exit':
+        this._receivedExitMessage = true;
         this.emit('exit', { exitCode: message.code, signal: message.signal });
         this._socket?.destroy();
         break;

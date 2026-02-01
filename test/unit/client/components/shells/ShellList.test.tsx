@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, renderHook, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ShellList } from '@client/components/shells/ShellList';
-import { ShellItem } from '@client/components/shells/ShellItem';
+import { ShellItem, useProjectAiStatus, type WorktreeStatusInfo } from '@client/components/shells/ShellItem';
 import { useUIStore } from '@client/stores/uiStore';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
+import { renderWithProviders, createTestQueryClient, createTestWrapper } from '../../../../utils/testQueryClient';
 import type { Shell } from '@shared/types';
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -282,13 +282,13 @@ describe('ShellItem', () => {
   it('shows active state when shell is selected', () => {
     useUIStore.getState().setActiveShell('shell-1');
 
-    const { container } = renderWithProviders(
+    renderWithProviders(
       <ShellItem shell={mockShell} projectId="proj-1" />,
       queryClient,
     );
 
-    // Check the button has the active background color
-    const button = container.querySelector('.shell-item');
+    // Check the name button has the active background color
+    const button = screen.getByTestId('shell-name');
     expect(button).toHaveStyle({ backgroundColor: 'var(--mantine-color-dark-5)' });
   });
 
@@ -298,8 +298,8 @@ describe('ShellItem', () => {
 
       renderWithProviders(<ShellItem shell={mockShell} projectId="proj-1" />, queryClient);
 
-      // Click the shell item
-      const shellButton = screen.getByTestId('shell-item');
+      // Click the shell name button
+      const shellButton = screen.getByTestId('shell-name');
       await user.click(shellButton);
 
       // Verify context sidebar opened with shell type and ID
@@ -317,8 +317,8 @@ describe('ShellItem', () => {
 
       renderWithProviders(<ShellItem shell={mockShell} projectId="proj-1" />, queryClient);
 
-      // Click the same shell
-      const shellButton = screen.getByTestId('shell-item');
+      // Click the same shell name button
+      const shellButton = screen.getByTestId('shell-name');
       await user.click(shellButton);
 
       // Verify context sidebar closed
@@ -335,8 +335,8 @@ describe('ShellItem', () => {
 
       renderWithProviders(<ShellItem shell={otherShell} projectId="proj-1" />, queryClient);
 
-      // Click this shell
-      const shellButton = screen.getByTestId('shell-item');
+      // Click this shell name button
+      const shellButton = screen.getByTestId('shell-name');
       await user.click(shellButton);
 
       // Verify context sidebar switched to this shell
@@ -352,7 +352,7 @@ describe('ShellItem', () => {
         queryClient,
       );
 
-      const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+      const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
       expect(activityIndicator).toBeInTheDocument();
     });
 
@@ -362,7 +362,7 @@ describe('ShellItem', () => {
         queryClient,
       );
 
-      const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+      const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
       expect(activityIndicator).not.toBeInTheDocument();
     });
 
@@ -372,7 +372,7 @@ describe('ShellItem', () => {
         queryClient,
       );
 
-      const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+      const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
       expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-red-6)' });
     });
 
@@ -387,7 +387,7 @@ describe('ShellItem', () => {
 
       // Wait for the effect to update state
       await waitFor(() => {
-        const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+        const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
         expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-green-6)' });
       });
     });
@@ -406,7 +406,7 @@ describe('ShellItem', () => {
 
       // Wait for the effect to update state
       await waitFor(() => {
-        const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+        const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
         expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-green-6)' });
       });
     });
@@ -423,7 +423,7 @@ describe('ShellItem', () => {
 
       // Initially should be green
       await waitFor(() => {
-        const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+        const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
         expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-green-6)' });
       });
 
@@ -432,7 +432,7 @@ describe('ShellItem', () => {
 
       // Should now be red
       await waitFor(() => {
-        const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+        const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
         expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-red-6)' });
       });
     });
@@ -448,7 +448,7 @@ describe('ShellItem', () => {
         queryClient,
       );
 
-      const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+      const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
       expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-blue-6)' });
     });
 
@@ -468,7 +468,7 @@ describe('ShellItem', () => {
 
       // Should still be blue because shell is done
       await waitFor(() => {
-        const activityIndicator = container.querySelector('[data-testid="ai-activity-indicator"]');
+        const activityIndicator = container.querySelector('[data-testid="shell-item-status"]');
         expect(activityIndicator).toHaveStyle({ backgroundColor: 'var(--mantine-color-blue-6)' });
       });
     });
@@ -625,6 +625,278 @@ describe('ShellItem', () => {
           }),
         );
       });
+    });
+  });
+});
+
+describe('useProjectAiStatus', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+    useUIStore.getState().reset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    queryClient.clear();
+  });
+
+  describe('without worktrees (backward compatibility)', () => {
+    it('returns null when no shells', () => {
+      const { result } = renderHook(
+        () => useProjectAiStatus([], []),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBeNull();
+    });
+
+    it('returns null when only bash shells exist', () => {
+      const bashShells: Shell[] = [mockShell];
+
+      const { result } = renderHook(
+        () => useProjectAiStatus(bashShells, []),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBeNull();
+    });
+
+    it('returns red when AI shell has no recent activity', () => {
+      const aiShells: Shell[] = [mockAiShell];
+
+      const { result } = renderHook(
+        () => useProjectAiStatus(aiShells, []),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBe('red');
+    });
+
+    it('returns green when AI shell has recent activity', async () => {
+      const aiShells: Shell[] = [mockAiShell];
+
+      // Record activity for the AI shell
+      act(() => {
+        useUIStore.getState().recordShellActivity(mockAiShell.id);
+      });
+
+      const { result } = renderHook(
+        () => useProjectAiStatus(aiShells, [], 5000),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      await waitFor(() => {
+        expect(result.current).toBe('green');
+      });
+    });
+
+    it('returns blue when all AI shells are done', () => {
+      const doneAiShells: Shell[] = [{ ...mockAiShell, done: true }];
+
+      const { result } = renderHook(
+        () => useProjectAiStatus(doneAiShells, []),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBe('blue');
+    });
+  });
+
+  describe('with worktrees (ST2 - status aggregation)', () => {
+    const worktreePath1 = '/path/to/worktree1';
+    const worktreePath2 = '/path/to/worktree2';
+
+    it('returns blue when worktree is marked as done (regardless of its shells)', () => {
+      // Worktree marked as done
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: true },
+      ];
+
+      // Shell in worktree with no activity (would be red if not for done worktree)
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-1',
+        worktreePath: worktreePath1,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBe('blue');
+    });
+
+    it('returns red when worktree AI shell is idle (not done)', () => {
+      // Worktree NOT marked as done
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: false },
+      ];
+
+      // Shell in worktree with no activity
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-1',
+        worktreePath: worktreePath1,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBe('red');
+    });
+
+    it('returns green when worktree AI shell has recent activity', async () => {
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: false },
+      ];
+
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-1',
+        worktreePath: worktreePath1,
+      };
+
+      // Record activity for the worktree AI shell
+      act(() => {
+        useUIStore.getState().recordShellActivity('wt-ai-1');
+      });
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      await waitFor(() => {
+        expect(result.current).toBe('green');
+      });
+    });
+
+    it('aggregates direct shells and worktree shells - red takes priority', () => {
+      // One worktree marked as done (blue)
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: true },
+      ];
+
+      // Direct AI shell that is idle (red)
+      const directAiShell: Shell = {
+        ...mockAiShell,
+        id: 'direct-ai-1',
+        worktreePath: null,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([directAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      // Red from direct shell takes priority over blue from worktree
+      expect(result.current).toBe('red');
+    });
+
+    it('aggregates multiple worktrees - red takes priority', () => {
+      // Two worktrees, one done and one not
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: true },
+        { path: worktreePath2, done: false },
+      ];
+
+      // AI shell in the not-done worktree (idle = red)
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-2',
+        worktreePath: worktreePath2,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      // Red from worktree2's idle AI shell takes priority over blue from worktree1
+      expect(result.current).toBe('red');
+    });
+
+    it('aggregates multiple worktrees - green takes priority over blue', async () => {
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: true }, // blue
+        { path: worktreePath2, done: false }, // will be green
+      ];
+
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-2',
+        worktreePath: worktreePath2,
+      };
+
+      // Record activity for worktree2's shell
+      act(() => {
+        useUIStore.getState().recordShellActivity('wt-ai-2');
+      });
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      await waitFor(() => {
+        // Green from worktree2's active AI shell takes priority over blue from worktree1
+        expect(result.current).toBe('green');
+      });
+    });
+
+    it('returns null when worktrees have no AI shells and are not done', () => {
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: false },
+      ];
+
+      // Bash shell in worktree (not AI, so shouldn't contribute to status)
+      const worktreeBashShell: Shell = {
+        ...mockShell,
+        id: 'wt-bash-1',
+        worktreePath: worktreePath1,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([worktreeBashShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      expect(result.current).toBeNull();
+    });
+
+    it('separates direct shells from worktree shells correctly', () => {
+      const worktrees: WorktreeStatusInfo[] = [
+        { path: worktreePath1, done: false },
+      ];
+
+      // Direct AI shell (done = blue)
+      const directAiShell: Shell = {
+        ...mockAiShell,
+        id: 'direct-ai-1',
+        worktreePath: null,
+        done: true,
+      };
+
+      // Worktree AI shell (not done, idle = red)
+      const worktreeAiShell: Shell = {
+        ...mockAiShell,
+        id: 'wt-ai-1',
+        worktreePath: worktreePath1,
+        done: false,
+      };
+
+      const { result } = renderHook(
+        () => useProjectAiStatus([directAiShell, worktreeAiShell], worktrees),
+        { wrapper: createTestWrapper(queryClient) },
+      );
+
+      // Red from worktree shell takes priority
+      expect(result.current).toBe('red');
     });
   });
 });

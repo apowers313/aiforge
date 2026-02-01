@@ -10,6 +10,8 @@ import { ApiError } from '../middleware/error.js';
 import type { ProjectService } from '../../services/project/ProjectService.js';
 import type { ProjectMetadataService } from '../../services/project/ProjectMetadataService.js';
 import type { ProjectUrlsService } from '../../services/project/ProjectUrlsService.js';
+import type { ProjectContextService } from '../../services/project/ProjectContextService.js';
+import type { WorktreeService } from '../../services/project/WorktreeService.js';
 import type { FileTreeService } from '../../services/filesystem/FileTreeService.js';
 import { join, normalize, relative } from 'node:path';
 
@@ -19,6 +21,8 @@ declare module 'express-serve-static-core' {
     projectService?: ProjectService;
     projectMetadataService?: ProjectMetadataService;
     projectUrlsService?: ProjectUrlsService;
+    projectContextService?: ProjectContextService;
+    worktreeService?: WorktreeService;
     fileTreeService?: FileTreeService;
   }
 }
@@ -61,6 +65,45 @@ const FilePathParamsSchema = z.object({
   filePath: z.string().min(1, 'File path is required'),
 });
 
+const CreateWorktreeSchema = z.object({
+  name: z
+    .string()
+    .min(1, 'Worktree name is required')
+    .max(255)
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/,
+      'Invalid branch name: must start with alphanumeric and contain only alphanumeric, dots, underscores, hyphens, and forward slashes',
+    ),
+  baseBranch: z.string().min(1).max(255).optional(),
+});
+
+const WorktreePathParamsSchema = z.object({
+  id: z.string().uuid('Invalid project ID'),
+  worktreePath: z.string().min(1, 'Worktree path is required'),
+});
+
+const TodoIdParamsSchema = z.object({
+  id: z.string().uuid('Invalid project ID'),
+  todoId: z.string().uuid('Invalid todo ID'),
+});
+
+const CreateTodoSchema = z.object({
+  text: z.string().min(1, 'TODO text is required').max(500),
+});
+
+const UpdateTodoSchema = z.object({
+  text: z.string().min(1).max(500).optional(),
+  completed: z.boolean().optional(),
+});
+
+const UpdateNotesSchema = z.object({
+  notes: z.string().max(50000), // Allow empty notes
+});
+
+const ReorderTodosSchema = z.object({
+  todoIds: z.array(z.string()),
+});
+
 type CreateProjectBody = z.infer<typeof CreateProjectSchema>;
 type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>;
 type IdParams = z.infer<typeof IdParamsSchema>;
@@ -68,6 +111,13 @@ type UrlIdParams = z.infer<typeof UrlIdParamsSchema>;
 type CreateUrlBody = z.infer<typeof CreateUrlSchema>;
 type FilePathParams = z.infer<typeof FilePathParamsSchema>;
 type UpdateUrlBody = z.infer<typeof UpdateUrlSchema>;
+type CreateWorktreeBody = z.infer<typeof CreateWorktreeSchema>;
+type WorktreePathParams = z.infer<typeof WorktreePathParamsSchema>;
+type TodoIdParams = z.infer<typeof TodoIdParamsSchema>;
+type CreateTodoBody = z.infer<typeof CreateTodoSchema>;
+type UpdateTodoBody = z.infer<typeof UpdateTodoSchema>;
+type UpdateNotesBody = z.infer<typeof UpdateNotesSchema>;
+type ReorderTodosBody = z.infer<typeof ReorderTodosSchema>;
 
 /**
  * GET /api/projects
@@ -383,6 +433,355 @@ router.get('/:id/files/:filePath/preview', validateParams(FilePathParamsSchema),
 });
 
 /**
+ * GET /api/projects/:id/worktrees
+ * Get git worktrees for a project
+ */
+router.get('/:id/worktrees', validateParams(IdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.worktreeService) {
+      throw ApiError.internal('Worktree service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+    const worktrees = await req.worktreeService.getWorktrees(id);
+    res.json({ worktrees });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/projects/:id/worktrees/main
+ * Get the main branch name for a project
+ */
+router.get('/:id/worktrees/main', validateParams(IdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.worktreeService) {
+      throw ApiError.internal('Worktree service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+    const branch = await req.worktreeService.getMainBranch(id);
+    res.json({ branch });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/projects/:id/worktrees
+ * Create a new worktree for a project
+ */
+router.post(
+  '/:id/worktrees',
+  validateParams(IdParamsSchema),
+  validateBody(CreateWorktreeSchema),
+  async (req, res, next) => {
+    try {
+      if (!req.worktreeService) {
+        throw ApiError.internal('Worktree service not configured');
+      }
+
+      const { id } = req.params as IdParams;
+      const { name, baseBranch } = req.body as CreateWorktreeBody;
+
+      const worktree = await req.worktreeService.createWorktree(id, name, baseBranch);
+      res.status(201).json({ worktree });
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message.includes('not found')) {
+          next(ApiError.notFound(err.message));
+          return;
+        }
+        if (
+          err.message.includes('already exists') ||
+          err.message.includes('not a git repository') ||
+          err.message.includes('does not exist')
+        ) {
+          next(ApiError.badRequest(err.message));
+          return;
+        }
+      }
+      next(err);
+    }
+  },
+);
+
+/**
+ * DELETE /api/projects/:id/worktrees/:worktreePath
+ * Delete a worktree from a project
+ */
+router.delete(
+  '/:id/worktrees/:worktreePath',
+  validateParams(WorktreePathParamsSchema),
+  async (req, res, next) => {
+    try {
+      if (!req.worktreeService || !req.projectService) {
+        throw ApiError.internal('Required services not configured');
+      }
+
+      const { id, worktreePath: encodedPath } = req.params as WorktreePathParams;
+
+      // Check if project exists
+      const project = await req.projectService.getById(id);
+      if (!project) {
+        throw ApiError.notFound('Project not found');
+      }
+
+      // Decode the worktree path
+      const worktreePath = decodeURIComponent(encodedPath);
+
+      // Check for force flag in query params
+      const force = req.query.force === 'true';
+
+      await req.worktreeService.deleteWorktree(id, worktreePath, force);
+      res.json({ success: true });
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.message.includes('not found') || err.message.includes('Project not found')) {
+          next(ApiError.notFound(err.message));
+          return;
+        }
+        if (
+          err.message.includes('main worktree') ||
+          err.message.includes('not a working tree') ||
+          err.message.includes('Not a git repository')
+        ) {
+          next(ApiError.badRequest(err.message));
+          return;
+        }
+      }
+      next(err);
+    }
+  },
+);
+
+// =============================================================================
+// Project Context Routes (TODOs and Notes)
+// =============================================================================
+
+/**
+ * GET /api/projects/:id/context
+ * Get project context (todos and notes)
+ */
+router.get('/:id/context', validateParams(IdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    const context = await req.projectContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/projects/:id/todos
+ * Add a TODO to a project
+ */
+router.post('/:id/todos', validateParams(IdParamsSchema), validateBody(CreateTodoSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+    const { text } = req.body as CreateTodoBody;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    const todo = await req.projectContextService.addTodo(id, text);
+    res.status(201).json(todo);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/projects/:id/todos/clear-completed
+ * Clear all completed TODOs
+ * NOTE: Must be before :todoId routes to avoid matching
+ */
+router.post('/:id/todos/clear-completed', validateParams(IdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    const cleared = await req.projectContextService.clearCompleted(id);
+    res.json({ cleared });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/projects/:id/todos/reorder
+ * Reorder TODOs
+ * NOTE: Must be before :todoId routes to avoid matching
+ */
+router.put('/:id/todos/reorder', validateParams(IdParamsSchema), validateBody(ReorderTodosSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+    const { todoIds } = req.body as ReorderTodosBody;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    await req.projectContextService.reorderTodos(id, todoIds);
+    const context = await req.projectContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/projects/:id/todos/:todoId
+ * Update a TODO
+ */
+router.put('/:id/todos/:todoId', validateParams(TodoIdParamsSchema), validateBody(UpdateTodoSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id, todoId } = req.params as TodoIdParams;
+    const body = req.body as UpdateTodoBody;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    // Build updates object with only defined values (filter out undefined)
+    const updates: { text?: string; completed?: boolean } = {};
+    if (body.text !== undefined) {
+      updates.text = body.text;
+    }
+    if (body.completed !== undefined) {
+      updates.completed = body.completed;
+    }
+
+    const todo = await req.projectContextService.updateTodo(id, todoId, updates);
+    if (!todo) {
+      throw ApiError.notFound('TODO not found');
+    }
+
+    res.json(todo);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/projects/:id/todos/:todoId
+ * Delete a TODO
+ */
+router.delete('/:id/todos/:todoId', validateParams(TodoIdParamsSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id, todoId } = req.params as TodoIdParams;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    const deleted = await req.projectContextService.deleteTodo(id, todoId);
+    if (!deleted) {
+      throw ApiError.notFound('TODO not found');
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/projects/:id/notes
+ * Update project notes
+ */
+router.patch('/:id/notes', validateParams(IdParamsSchema), validateBody(UpdateNotesSchema), async (req, res, next) => {
+  try {
+    if (!req.projectService) {
+      throw ApiError.internal('Project service not configured');
+    }
+    if (!req.projectContextService) {
+      throw ApiError.internal('Project context service not configured');
+    }
+
+    const { id } = req.params as IdParams;
+    const { notes } = req.body as UpdateNotesBody;
+
+    // Verify project exists
+    const project = await req.projectService.getById(id);
+    if (!project) {
+      throw ApiError.notFound('Project not found');
+    }
+
+    await req.projectContextService.updateNotes(id, notes);
+    const context = await req.projectContextService.getContext(id);
+    res.json(context);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * Middleware to attach project service
  */
 export function attachProjectService(projectService: ProjectService): RequestHandler {
@@ -418,6 +817,26 @@ export function attachProjectUrlsService(projectUrlsService: ProjectUrlsService)
 export function attachFileTreeService(fileTreeService: FileTreeService): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction): void => {
     req.fileTreeService = fileTreeService;
+    next();
+  };
+}
+
+/**
+ * Middleware to attach worktree service
+ */
+export function attachWorktreeService(worktreeService: WorktreeService): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    req.worktreeService = worktreeService;
+    next();
+  };
+}
+
+/**
+ * Middleware to attach project context service
+ */
+export function attachProjectContextService(projectContextService: ProjectContextService): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    req.projectContextService = projectContextService;
     next();
   };
 }

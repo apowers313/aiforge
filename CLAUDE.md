@@ -110,6 +110,35 @@ AIFORGE_DATA_DIR          # Data directory (default: ~/.aiforge)
 E2E_TEST                  # Flag for E2E test mode
 ```
 
+## Authentication
+
+AIForge uses a GUID-based authentication system. The auth GUID can be configured in multiple ways:
+
+**Configuration Sources (in priority order)**:
+1. Environment variable: `AIFORGE_AUTH_GUID`
+2. Config file: `~/.aiforge/config.json` (`authGuid` field)
+3. Empty = no authentication required
+
+**Important**: Servers cache the auth GUID at startup. If you change `config.json` while a server is running, the server still uses the old GUID until restarted.
+
+**Finding the GUID for a Running Server**:
+```bash
+# Get PID of running server
+ps aux | grep aiforge
+
+# Read GUID from process environment
+cat /proc/<pid>/environ | tr '\0' '\n' | grep GUID
+# Example output: AIFORGE_AUTH_GUID=72e282ac-e837-425d-8bbe-8c068611ed59
+
+# Or check servherd for managed servers
+servherd_info name=aiforge-prod
+```
+
+**Generating a New GUID**:
+```bash
+npm run generate-guid
+```
+
 ## Code Conventions
 
 - Explicit return types required on all functions (ESLint enforced)
