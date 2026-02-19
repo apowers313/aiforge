@@ -208,6 +208,19 @@ export class PtyPool extends EventEmitter {
   }
 
   /**
+   * Evict a session from the pool without killing the daemon.
+   * The daemon process keeps running and can be re-attached later.
+   * Use this when the pool entry is stale but the daemon may still be alive.
+   */
+  evict(shellId: string): void {
+    if (this._usePersistentDaemons && this._daemonManager) {
+      this._daemonManager.disconnect(shellId);
+    }
+    // Also check the direct manager (shouldn't be there in daemon mode, but be safe)
+    this._manager.kill(shellId);
+  }
+
+  /**
    * Kill a specific session
    */
   kill(shellId: string): void {

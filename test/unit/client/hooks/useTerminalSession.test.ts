@@ -342,7 +342,9 @@ describe('useTerminalSession', () => {
       expect(result.current.state.status).toBe('reconnecting');
 
       // Simulate max retries reached - advance timers multiple times
-      for (let i = 0; i < 3; i++) {
+      // With maxReconnectAttempts=2, we need 2 more close events (3 total including
+      // the initial disconnect) to exceed the limit: attempt 1 (initial), 2 (i=0), 3 (i=1) > max(2).
+      for (let i = 0; i < 2; i++) {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(5000);
         });

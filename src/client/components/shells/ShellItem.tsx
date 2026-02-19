@@ -56,10 +56,6 @@ export function useAiShellActivity(shell: Shell, idleTimeoutMs: number): boolean
 
     const checkActivity = (): void => {
       const isActive = isShellRecentlyActive(shell, clientActivityTimestamp, idleTimeoutMs);
-      const now = Date.now();
-      const timeSinceClient = clientActivityTimestamp ? String(now - clientActivityTimestamp) : 'N/A';
-      const timeSinceServer = shell.lastActivityAt ? String(now - new Date(shell.lastActivityAt).getTime()) : 'N/A';
-      console.log(`[AI_INDICATOR] shell=${shell.name} isActive=${String(isActive)} clientTs=${timeSinceClient}ms serverTs=${timeSinceServer}ms`);
       setIsRecentlyActive(isActive);
     };
 
@@ -228,8 +224,6 @@ export function ShellItem({ shell, projectId, aiIdleTimeoutMs = 5000, depth = 1 
   const isAiShell = shell.type === 'ai';
 
   const handleClick = (): void => {
-    console.log(`[TERMINAL_SWITCH] ${performance.now().toFixed(2)}ms - Click on shell: ${shell.id} (${shell.name})`);
-    (window as unknown as { __terminalSwitchStart?: number }).__terminalSwitchStart = performance.now();
     setActiveShell(shell.id);
     toggleContextSidebar('shell', shell.id);
   };

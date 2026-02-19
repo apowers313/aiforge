@@ -10,7 +10,7 @@
  * They require longer timeouts and proper cleanup.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { unlink, access } from 'node:fs/promises';
+import { unlink, access, constants } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { PtyDaemonManager } from '@server/services/pty/PtyDaemonManager.js';
 import { getSocketPath } from '@server/services/pty/daemon/protocol.js';
@@ -47,12 +47,21 @@ describe('PTY Daemon Reconnection', () => {
   });
 
   afterEach(async () => {
-    // Kill all sessions and clean up sockets
+    // Kill all sessions tracked by the manager
     await manager.killAll();
 
-    // Clean up any test sockets
+    // Re-attach to any orphaned daemons (those disconnected during the test
+    // but still running) and kill them. Without this, tests that call
+    // disconnectAll() leave daemon processes running forever.
     for (const shellId of testShellIds) {
-      await cleanupSocket(shellId);
+      if (manager.get(shellId)) continue; // already handled by killAll
+      try {
+        await manager.attach(shellId, tmpdir());
+        await manager.kill(shellId);
+      } catch {
+        // Socket doesn't exist or can't connect -- just clean up the file
+        await cleanupSocket(shellId);
+      }
     }
     testShellIds.length = 0;
   });
@@ -181,14 +190,33 @@ describe('PTY Daemon Reconnection', () => {
 
       expect(manager.count()).toBe(2);
 
+      // Verify sockets exist before disconnecting
+      const socketPath1 = getSocketPath(shellId1);
+      const socketPath2 = getSocketPath(shellId2);
+      await access(socketPath1, constants.F_OK);
+      await access(socketPath2, constants.F_OK);
+
       // Disconnect all (simulates server restart)
       manager.disconnectAll();
       expect(manager.count()).toBe(0);
 
-      // Brief delay to allow daemon to fully process the disconnection
-      // Without this, the next attach() can race with the socket cleanup
-      // Using 200ms instead of 100ms for stability when running with full test suite
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Wait for daemons to process the client disconnection.
+      // Under heavy parallel test load, daemons may need extra time.
+      // Poll for socket existence to confirm daemons are still alive.
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        try {
+          await access(socketPath1, constants.F_OK);
+          await access(socketPath2, constants.F_OK);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+
+      // Assert sockets survived disconnection (daemon should stay running)
+      await access(socketPath1, constants.F_OK);
+      await access(socketPath2, constants.F_OK);
 
       // Reconnect to both
       await manager.attach(shellId1, tmpdir());

@@ -45,6 +45,12 @@ vi.mock('@client/hooks/useTerminalSession', () => ({
   })),
 }));
 
+// Mock useShellActivityTracker to prevent WebSocket health check fetches
+// from consuming sequentially-mocked fetch responses in tests
+vi.mock('@client/hooks/useShellActivityTracker', () => ({
+  useShellActivityTracker: vi.fn(),
+}));
+
 // Mock fetch globally
 const mockFetch = vi.fn();
 global.fetch = mockFetch;

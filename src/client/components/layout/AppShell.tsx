@@ -11,12 +11,16 @@ import { ContextSidebar } from '@client/components/context-sidebar/ContextSideba
 import { FilePreview } from '@client/components/context-sidebar/common/FilePreview';
 import { useProjects, useCreateProject } from '@client/hooks/useProjects';
 import { useAllShells, useActiveShellId } from '@client/hooks/useShells';
+import { useShellActivityTracker } from '@client/hooks/useShellActivityTracker';
 import { ApiError } from '@client/services/errors';
 import { log } from '@client/services/logger';
 
 const projectLog = log.project;
 
 export function AppShellLayout(): React.ReactElement {
+  // Track shell activity at app level so indicators survive Terminal unmount
+  useShellActivityTracker();
+
   const sidebarCollapsed = useUIStore((state) => state.sidebarCollapsed);
   const sidebarWidth = useUIStore((state) => state.sidebarWidth);
   const setSidebarWidth = useUIStore((state) => state.setSidebarWidth);

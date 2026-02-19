@@ -233,6 +233,40 @@ export class PtyDaemonClient extends EventEmitter {
   }
 
   /**
+   * Check if the daemon is alive by sending a ping and waiting for a pong.
+   * Returns false immediately if not connected/ready, or if pong is not
+   * received within timeoutMs.
+   */
+  isAlive(timeoutMs = 3000): Promise<boolean> {
+    if (!this._isConnected || !this._isReady) {
+      return Promise.resolve(false);
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          this.off('pong', onPong);
+          resolve(false);
+        }
+      }, timeoutMs);
+
+      const onPong = (): void => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(true);
+        }
+      };
+
+      this.once('pong', onPong);
+      this.ping();
+    });
+  }
+
+  /**
    * Subscribe to data events with disposable pattern
    */
   onData(callback: (data: string) => void): () => void {

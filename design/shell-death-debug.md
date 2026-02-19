@@ -154,10 +154,15 @@ grep "cleanupOrphanedSockets" src/server/services/shell/ShellSessionManager.ts
 ls ~/.local/share/aiforge/sockets/*.sock
 
 # If socket exists but daemon is dead, it's a stale socket
-# Try to connect to verify:
-node -e "require('net').connect(process.env.HOME + '/.local/share/aiforge/sockets/SHELLID.sock').on('error', e => console.log(e.code))"
+# Try to connect to verify (connect-and-destroy, do NOT send data):
+node -e "
+  const s = require('net').createConnection(process.env.HOME + '/.local/share/aiforge/sockets/SHELLID.sock');
+  s.on('connect', () => { s.destroy(); console.log('alive'); });
+  s.on('error', e => console.log('dead:', e.code));
+  setTimeout(() => { s.destroy(); console.log('timeout'); }, 500);
+"
 # ECONNREFUSED = stale socket (daemon dead)
-# Connection succeeds = daemon alive
+# 'alive' = daemon is listening (destroy immediately to avoid becoming a client)
 ```
 
 ### Hypothesis 4: Daemon Process Crash
@@ -206,6 +211,57 @@ history | grep -i "kill\|pkill"
 
 # Check if any scripts ran that might kill processes
 ```
+
+### Hypothesis 7: Daemon Degradation from Rapid Server Restarts
+
+**Symptoms**: Daemons are still running (visible in `ps aux`) but unresponsive -- not accepting new socket connections, not sending heartbeat logs, high memory usage (~1.5 GB+ RSS vs ~83 MB for healthy daemons). Shells appear alive in the UI but user cannot type in them. New shells work fine.
+
+**How to check**:
+```bash
+# Compare RSS of old vs new daemon processes
+ps aux | grep pty-daemon | grep -v grep | awk '{print $2, $6/1024 "MB", $11}'
+
+# Check servherd logs for rapid restarts (multiple restarts within ~30 seconds)
+servherd logs aiforge-server-dev --lines 100 | grep "tsx"
+
+# Check if daemons are sending heartbeat logs (should appear every 5 min)
+# Use remote logger: mcp__remote-logger__logs_search query="HEARTBEAT"
+# If old daemons have no recent heartbeats, they may be degraded
+
+# Check socket connectivity safely (connect-and-destroy, no data sent)
+node -e "
+  const s = require('net').createConnection(process.argv[1]);
+  s.on('connect', () => { s.destroy(); console.log('alive'); process.exit(0); });
+  s.on('error', e => { console.log('dead:', e.code); process.exit(1); });
+  setTimeout(() => { s.destroy(); console.log('timeout -- likely degraded'); process.exit(1); }, 2000);
+" /path/to/socket.sock
+# 'timeout' with a running process = degraded daemon (alive but event loop unresponsive)
+```
+
+**Root cause identified (2026-02-18)**: Rapid server restart cycles (4 restarts within 30 seconds from `tsx watch`) cause daemons to enter a degraded state. Each restart creates and abandons a socket client connection. The rapid connect/disconnect cycle with AI shells producing constant output causes buffer/memory buildup that exhausts the daemon's Node.js event loop. See [The 2026-02-18 Status Indicator Incident](#the-2026-02-18-status-indicator-incident).
+
+**Ruled out if**: Server logs show clean restarts with >60s spacing between them, or daemon RSS is <200 MB.
+
+### Hypothesis 8: Leaked Test Daemons Causing CPU Starvation
+
+**Symptoms**: System load far exceeds CPU thread count, many `test-reconnect-*` daemon processes visible in `ps aux` consuming high CPU, production daemons degrade under CPU pressure.
+
+**How to check**:
+```bash
+# Count leaked test daemons
+ps aux | grep pty-daemon | grep -v grep | grep test-reconnect | wc -l
+
+# Check system load vs CPU count
+uptime && nproc
+
+# If load >> nproc, CPU starvation is likely contributing to daemon degradation
+# Kill leaked test daemons to restore system health:
+pkill -f "test-reconnect.*pty-daemon"
+```
+
+**Root cause identified (2026-02-18)**: `PtyDaemonReconnect.live.test.ts` `afterEach` cleanup relies on `manager.killAll()`, which only kills sessions in `_sessions` map. Tests that call `disconnectAll()` clear this map, orphaning daemon processes. Each test run leaks 2-4 daemons. See [The 2026-02-18 Test Daemon Leak Incident](#the-2026-02-18-test-daemon-leak-incident).
+
+**Ruled out if**: No `test-reconnect-*` daemon processes visible, system load is reasonable relative to CPU count.
 
 ## The 2026-02-01 Incident
 
@@ -405,12 +461,19 @@ mcp__remote-logger__logs_search query="SIGTERM|SIGKILL|shutdown|exiting"
 # Find all daemon-related processes
 ps aux | grep -E "pty-daemon|node.*daemon" | grep -v grep
 
-# Check socket connectivity (default XDG path)
+# Check socket connectivity SAFELY (default XDG path)
+# WARNING: Do NOT use nc/socat -- they connect as real clients and receive PTY data!
 SOCK_DIR="${AIFORGE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/aiforge}/sockets"
 for sock in "$SOCK_DIR"/*.sock; do
   [ -e "$sock" ] || continue
-  echo -n "$sock: "
-  timeout 1 bash -c "echo '' | nc -U '$sock'" 2>/dev/null && echo "alive" || echo "dead/stale"
+  shellId=$(basename "$sock" .sock)
+  echo -n "$shellId: "
+  node -e "
+    const s = require('net').createConnection(process.argv[1]);
+    s.on('connect', () => { s.destroy(); console.log('alive'); process.exit(0); });
+    s.on('error', (e) => { console.log('dead:', e.code); process.exit(1); });
+    setTimeout(() => { s.destroy(); console.log('timeout'); process.exit(1); }, 500);
+  " "$sock"
 done
 
 # Monitor daemon spawns in real-time
@@ -629,6 +692,209 @@ Added to `test/integration/pty/PtyDaemonReconnect.live.test.ts` in the `broken p
 5. Connects to the daemon socket and verifies it is still alive
 6. Sends a command and confirms the daemon responds with output
 
+## The 2026-02-18 Status Indicator Incident
+
+### Symptoms
+- After implementing a status indicator feature (writing to 4 server-side files), all pre-existing shells became unresponsive -- user could not type in any of them
+- Newly created shells worked fine
+- A page refresh did not recover the old shells
+- Old daemon processes were still running (visible in `ps aux`) but consumed ~1.5 GB RSS each (vs ~83 MB for healthy daemons)
+- Old daemons did not accept new socket connections and stopped sending heartbeat logs
+- Attempting to probe sockets with `nc` further disrupted daemons; shells eventually had to be restarted, losing all running processes (Claude Code sessions, etc.)
+
+### Timeline (Feb 18, all times Pacific)
+
+| Time | Event |
+|------|-------|
+| 10:06:28 PM | tsx detects change in `ShellSessionManager.ts`, restarts server |
+| 10:06:29 PM | New server (PID 1918449) attaches to 6 daemons; `59cfd099` immediately gets `exitCode: -1` (broken pipe variant) |
+| 10:06:42 PM | tsx detects change in `WebSocketServer.ts`, restarts server |
+| 10:06:44 PM | New server (PID 1918609) attaches to 5 surviving daemons -- no `exitCode: -1` |
+| 10:06:51 PM | tsx detects another change in `WebSocketServer.ts`, restarts server |
+| 10:06:56 PM | tsx force-kills server (5s timeout); new server (PID 1918824) attaches to all 5 daemons -- no `exitCode: -1` |
+| 10:06:56 PM | **Server stabilizes** -- no more restarts. Server holds active connections to 5 old daemons |
+| ~10:10 PM | User cannot type in old shells; new shells (`59cfd099`, `7a2da972`) created and work fine |
+| ~10:15 PM | Old daemons stop sending heartbeat logs; socket connectivity tests show no response within 1s |
+| ~10:18 PM | User refreshes page -- old shells still unresponsive (server holds stale pool entries from startup attachment) |
+| ~10:20 PM | `nc -U` socket probe connects to live daemons as a second client, receives PTY data stream. On exit, disrupts daemon client tracking |
+| ~10:20 PM | Old shells eventually restart with "--- shell restarted ---", losing all running processes |
+
+### Root Causes
+
+This incident has **three compounding root causes**: daemon degradation, a client-side state machine bug, and unsafe socket probing.
+
+#### Root Cause 1: Daemon Degradation After Rapid Server Restarts
+
+The 4 rapid server restarts (within 30 seconds) caused the 5 old daemons to enter a degraded state where they were running but unresponsive:
+- Not accepting new socket connections
+- Not sending heartbeat logs
+- Consuming ~1.5 GB RSS each (vs ~83 MB for healthy daemons)
+
+The exact mechanism is not fully understood. The broken pipe fix prevented immediate daemon death (no `exitCode: -1` for the 5 old daemons after the final restart). However, the rapid cycle of server connections and disconnections (each restart creates and then abandons a socket client connection to every daemon) appears to have caused internal resource exhaustion. The daemons' Node.js event loops became unresponsive, preventing them from processing new connections or heartbeat timers.
+
+**Why the broken pipe fix was necessary but insufficient**: The EPIPE handler on `process.stdout`/`process.stderr` prevented the daemons from crashing outright (as in the earlier Feb 18 incident). But surviving the pipe break is only half the problem -- the daemon also needs to survive the rapid connect/disconnect cycle from consecutive server instances. Each server instance connects, the daemon adds it to its client set, then the server dies and the connection closes. Four cycles in 30 seconds with AI shells producing constant output may have caused buffer/memory buildup that degraded the event loop.
+
+#### Root Cause 2: Client-Side Session State Machine Bug
+
+The `handleClose` callback in `useTerminalSession.ts` does not handle the `'opening'` state:
+
+```typescript
+// handleClose only transitions from 'open' and 'reconnecting':
+if (currentState.status === 'open') {
+  return { status: 'reconnecting', ... };
+}
+if (currentState.status === 'reconnecting') {
+  return { ...currentState, attempt: reconnectAttemptRef.current };
+}
+return currentState; // <-- 'opening' falls through, state is stuck
+```
+
+When the WebSocket disconnects while a `session.open` request is in-flight (waiting for `session.opened` response), the state gets permanently stuck at `'opening'`. The `write()` function checks `state.status !== 'open'` and silently drops all input.
+
+The reconnection effect also cannot recover from `'opening'`:
+```typescript
+// Only triggers for 'reconnecting' or 'closed', NOT 'opening':
+if (state.status === 'reconnecting') { open(); }
+```
+
+This is a race condition: if the server restarts between sending `session.open` and receiving `session.opened`, the client is permanently stuck. With 4 rapid restarts, the probability of hitting this race is very high.
+
+**Why a page refresh didn't help**: Even after refresh, the server still held stale `PtyDaemonClient` connections in its pool from the startup attachment at 10:06:56 PM. When the client sent `session.open`, the server found the (stale) session in the pool via `_ptyPool.get(shellId)` and tried to use it. The daemon was unresponsive, so the session appeared to open but no data flowed and input was never delivered.
+
+#### Root Cause 3: Unsafe Socket Probing with `nc`
+
+During debugging, the command `echo '' | nc -U <socket>` was used to test socket connectivity. This is **unsafe for live daemon sockets**:
+
+1. `nc` connects to the daemon socket as a new client
+2. The daemon calls `handleClient()`, adds nc to its `clients` set, and sends `{"type":"ready"}`
+3. The daemon begins broadcasting ALL PTY output to nc (in addition to the server's connection)
+4. For AI shells producing constant output, nc receives a flood of data
+5. When nc exits (killed by `timeout 1`), the abrupt disconnect and buffer drain can disrupt daemon state
+
+For the already-degraded old daemons, the additional connection attempt from nc may have been the final trigger that caused them to fully crash. For healthy daemons, the connect/disconnect cycle was logged cleanly but still represents unnecessary risk.
+
+### How It Differs from Previous Incidents
+
+| | Feb 1 | Feb 17 | Feb 18 (EPIPE) | Feb 18 (Status Indicator) |
+|---|---|---|---|---|
+| **Trigger** | E2E `pkill` | E2E socket cleanup | Any server restart | Multiple rapid server restarts |
+| **Mechanism** | Process killed | Socket files deleted | Broken stdout pipe | Daemon degradation + client state machine stuck |
+| **What dies** | Daemon processes | Socket files | Daemon processes | Daemons enter zombie state (running but unresponsive) |
+| **Client impact** | Immediate death | Death on next open | Immediate death | Can't type; shells appear alive but frozen |
+| **Fix** | Remove `pkill` | XDG socket isolation | EPIPE error handlers | Needs: client state fix + daemon resilience |
+
+### Fixes Applied
+
+1. **Client-side `handleClose` handles `'opening'` and retryable `'error'` states** (`useTerminalSession.ts`): Transitions `'opening'` to `'reconnecting'` when WebSocket disconnects, clearing `pendingRequestIdRef`. Also handles retryable `'error'` state by re-entering `'reconnecting'`.
+
+2. **`openSession` verifies daemon liveness** (`ShellSessionManager.ts`): Added `isAlive()` ping/pong check before returning pool sessions. If unresponsive, evicts (disconnects without killing) via `PtyPool.evict()` and falls through to `_spawnOrReconnect()`.
+
+3. **Backpressure in daemon `broadcast()`** (`pty-daemon.ts`): Added per-client backpressure tracking with pause/resume and 10 MB safety valve to prevent memory buildup from slow clients.
+
+### Fixes Still Needed
+
+1. **Daemon connection resilience**: The exact mechanism causing daemon degradation after rapid connect/disconnect cycles is still not fully understood. The backpressure fix helps, but more investigation is needed.
+
+2. **Server recovery from permanently degraded daemons**: When a daemon's socket exists but the daemon cannot accept connections (connection timeout), the server has no way to recover. The safety check "NOT spawning new daemon to avoid orphaning existing process" prevents replacement. Need a force-kill path that uses OS signals (SIGTERM/SIGKILL) when socket-based kill fails.
+
+## The 2026-02-18 Test Daemon Leak Incident
+
+### Symptoms
+- 7 out of 13 production shells non-responsive -- user cannot type in them
+- System load average 62.83 on a 32-thread system (nearly 2x overloaded)
+- ~100 orphaned test daemon processes (`test-reconnect-*`) consuming 50-95% CPU each
+- 7 production daemon processes degraded: 1.6-1.7 GB RSS each (vs ~90 MB healthy), 18-50% CPU, no heartbeats
+- Server repeatedly logs "Connection timeout" and "NOT spawning new daemon to avoid orphaning existing process" for degraded shells
+- Healthy shells (spawned after the degradation event) work fine
+
+### Timeline (Feb 18, all times Pacific)
+
+| Time | Event |
+|------|-------|
+| ~6:05 PM | First test run of `PtyDaemonReconnect.live.test.ts` leaks 2 daemon processes |
+| ~6:05 PM - 7:18 PM | 18 test runs accumulate, each leaking 2-4 daemon processes (~50 daemons, ~100 OS processes) |
+| 11:18 PM | Latest test run (`npm test`) spawns more leaked daemons; system load climbs above 60 |
+| 11:22 PM | Source file edits (`ShellSessionManager.ts`, `PtyPool.ts`, `PtyDaemonManager.ts`) trigger tsx watch restarts |
+| 11:22:15 PM | Server marks 4 shells as orphaned (can't reconnect to degraded daemons) |
+| 11:22:15-44 PM | Server enters repeated attach-timeout loop for 7 degraded daemons |
+| 11:22:34 PM | `isAlive()` check correctly identifies `552d68f2` as unresponsive, evicts stale pool entry |
+| 11:22:34-44 PM | `_spawnOrReconnect()` tries to attach to `552d68f2`'s socket -- connection timeout |
+| 11:22:41 PM | Server tries `DAEMON_KILL` on `9ea24ffa` -- kill message sent via socket, but degraded daemon can't process it; daemon keeps running |
+| 11:22:23-39 PM | Server spawns replacement daemons for 3 shells (`1d964574`, `2705b743`, `7edd915f`) -- these are healthy |
+| 11:28-29 PM | Server spawns replacements for 2 more shells (`4b552582`, `a80f67af`) -- healthy |
+| 11:29-30 PM | 5 degraded daemons (`74cdb463`, `552d68f2`, `4aaeec31`, `bda6113e`, `e5edbec8`) remain stuck: socket exists, connection times out, safety check blocks new daemon spawn |
+
+### Root Causes
+
+This incident has **three compounding root causes**: leaked test daemons, CPU starvation, and a server recovery gap.
+
+#### Root Cause 1: Test Daemon Cleanup Bug
+
+The `afterEach` in `PtyDaemonReconnect.live.test.ts` calls `manager.killAll()`, which iterates `_sessions` to kill tracked sessions. However, two test cases ("finds orphaned sockets" and "cleans up orphaned sockets") call `manager.disconnectAll()` during the test, which clears `_sessions`. When `afterEach` runs, `killAll()` finds an empty map and kills nothing. The daemon processes continue running as detached orphans.
+
+```typescript
+// The bug: disconnectAll() clears _sessions, then killAll() has nothing to kill
+beforeEach(() => { manager = new PtyDaemonManager(); });
+
+// In test: orphan cleanup
+manager.disconnectAll();  // clears _sessions -- daemon process still running!
+
+// In afterEach:
+await manager.killAll();  // iterates _sessions (empty!) -- daemon is NOT killed
+```
+
+Each test run leaks 2-4 daemon processes. Over 18 runs across the session, ~50 daemon processes (100 OS processes, since each daemon is a tsx wrapper + node child) accumulated.
+
+#### Root Cause 2: CPU Starvation from Leaked Test Daemons
+
+The ~100 leaked test daemon processes, each consuming 50-95% CPU, pushed system load to 62.83 on a 32-thread system. This starved production daemons of CPU time. Combined with rapid tsx watch restarts (which cause rapid connect/disconnect cycles), the production daemons entered a degraded state where their Node.js event loops became unresponsive.
+
+Degraded daemon characteristics:
+- 1.6-1.7 GB RSS (vs ~90 MB healthy)
+- 18-50% CPU
+- Not sending heartbeat logs
+- Not accepting new socket connections (connect hangs until timeout)
+- Socket file still exists
+
+#### Root Cause 3: Server Cannot Recover from Permanently Degraded Daemons
+
+When `_spawnOrReconnect()` finds an existing socket file, it tries to attach. If the attach times out (degraded daemon), the safety check in `PtyDaemonManager.spawn()` fires:
+
+```
+"[DAEMON_SPAWN] Failed to attach to existing daemon. Socket exists but connection failed.
+NOT spawning new daemon to avoid orphaning existing process.
+This may indicate an unresponsive daemon."
+```
+
+This safety check is correct for transient issues (slow daemon that will recover), but wrong for permanently degraded daemons. The shell is stuck in a loop:
+1. `openSession()` -> `isAlive()` returns false -> evict pool entry
+2. `_spawnOrReconnect()` -> socket exists -> try attach -> connection timeout
+3. Safety check -> refuse to spawn new daemon -> shell stays broken
+4. Next `openSession()` call -> repeat from step 1
+
+The server has no way to force-kill a degraded daemon via OS signal because:
+- `session.kill()` sends a kill message through the socket -- the degraded daemon can't process it
+- `PtyDaemonManager.kill()` removes the socket file but doesn't send SIGTERM/SIGKILL to the process
+- The daemon process keeps running as a zombie, holding the socket file's inode
+
+### How It Differs from Previous Incidents
+
+| | Feb 1 | Feb 17 | Feb 18 (EPIPE) | Feb 18 (Status) | Feb 18 (Test Leak) |
+|---|---|---|---|---|---|
+| **Trigger** | E2E `pkill` | E2E socket cleanup | Any server restart | Rapid restarts | Rapid restarts + CPU starvation from leaked tests |
+| **Mechanism** | Process killed | Socket files deleted | Broken stdout pipe | Daemon degradation | Daemon degradation + no recovery path |
+| **What dies** | Daemon processes | Socket files | Daemon processes | Daemons enter zombie state | Daemons enter zombie state, server stuck in attach-timeout loop |
+| **Client impact** | Immediate death | Death on next open | Immediate death | Can't type; frozen | Can't type; repeated "shell restarted" or permanent non-responsiveness |
+| **Fix** | Remove `pkill` | XDG socket isolation | EPIPE error handlers | Client state fix + evict | Test cleanup fix + force-kill recovery path |
+
+### Fixes Needed
+
+1. **Fix test daemon cleanup** (`PtyDaemonReconnect.live.test.ts`): The `afterEach` must re-attach to orphaned daemons (by socket path) and kill them, not rely solely on `_sessions` which may have been cleared by `disconnectAll()`.
+
+2. **Add force-kill recovery path**: When `PtyDaemonManager.kill()` can't reach a daemon via the socket protocol, it should fall back to sending SIGTERM/SIGKILL to the daemon process directly using its PID. This requires tracking the daemon PID at spawn time.
+
+3. **Add timeout-based force-kill in `_spawnOrReconnect()`**: When attach times out N times for the same shell, escalate from "don't spawn" to force-killing the degraded daemon (OS signal) and spawning a replacement.
+
 ## Prevention Checklist
 
 When writing code that interacts with daemons:
@@ -642,6 +908,36 @@ When writing code that interacts with daemons:
 - [ ] **Cleanup functions must scope to their own directory** - `findOrphanedSockets` scans only `getSocketDir()`, never a shared namespace
 - [ ] **Daemon stdio must handle broken pipes** - `process.stdout.on('error', ...)` and `process.stderr.on('error', ...)` are required to prevent EPIPE from crashing the daemon when the parent server exits
 - [ ] **SIGPIPE alone is not sufficient** - The signal handler prevents signal-based termination, but the stream error handler is also needed to prevent EPIPE from becoming an uncaughtException
+- [ ] **Never use `nc`, `socat`, or raw tools to probe live daemon sockets** - These connect as real clients and receive PTY data streams; use the `isSocketStale()` pattern (connect then immediately destroy, no data sent) or `process.kill(pid, 0)` to check daemon health
+- [ ] **Client-side session state machine must handle all states in `handleClose`** - Every possible state (`closed`, `opening`, `open`, `reconnecting`, `error`) must have a defined transition when the WebSocket disconnects
+- [ ] **Server should verify daemon liveness before returning pool sessions** - A stale `PtyDaemonClient` in the pool can cause silent failures; ping/pong verification prevents serving dead sessions to clients
+- [ ] **Integration tests must kill ALL spawned daemons in cleanup** - `afterEach` must not rely on `_sessions` map alone; tests that call `disconnectAll()` leave daemons orphaned. Re-attach by socket path and kill, or track shell IDs separately
+- [ ] **Daemon kill must have OS signal fallback** - Socket-based kill messages cannot reach degraded daemons; `PtyDaemonManager.kill()` should fall back to `process.kill(pid, 'SIGTERM')` when the socket protocol fails
+
+## Safe Socket Connectivity Testing
+
+**DO NOT** use `nc -U`, `socat`, `curl --unix-socket`, or similar tools against live daemon sockets. They connect as real clients and the daemon will broadcast PTY output to them.
+
+**Safe alternatives:**
+
+```bash
+# Option 1: Check if process is alive (no socket interaction)
+kill -0 <daemon_pid> 2>/dev/null && echo "alive" || echo "dead"
+
+# Option 2: Use the isSocketStale() pattern from Node.js
+node -e "
+  const net = require('net');
+  const sock = net.createConnection(process.argv[1]);
+  sock.on('connect', () => { console.log('alive'); sock.destroy(); process.exit(0); });
+  sock.on('error', (e) => { console.log('dead:', e.code); process.exit(1); });
+  setTimeout(() => { sock.destroy(); console.log('timeout'); process.exit(1); }, 500);
+" /path/to/socket.sock
+
+# Option 3: Check if socket file exists (does NOT verify daemon is listening)
+test -S /path/to/socket.sock && echo "socket exists" || echo "no socket"
+```
+
+**Never** send data to a daemon socket during testing. The `isSocketStale()` approach connects and immediately destroys the connection without sending data, which is safe because the daemon tolerates client disconnects.
 
 ## Related Documentation
 

@@ -12,6 +12,7 @@ import { access, constants } from 'node:fs/promises';
 import type { Shell, SessionCloseReason } from '@shared/types/index.js';
 import type { ShellStore } from '../../storage/stores/ShellStore.js';
 import type { PtyPool, PtySessionLike } from '../pty/PtyPool.js';
+import { PtyDaemonClient } from '../pty/PtyDaemonClient.js';
 import { SessionError } from './SessionError.js';
 import { getSocketPath } from '../pty/daemon/protocol.js';
 import { logger } from '../../utils/logger.js';
@@ -108,6 +109,14 @@ export class ShellSessionManager extends EventEmitter {
     this._ptyPool.on('session:exited', (shellId: string, _exitCode: number) => {
       void this._handleSessionExited(shellId);
     });
+
+    // Forward PTY activity events for activity indicator broadcasting
+    this._ptyPool.on('session:output', (shellId: string) => {
+      this.emit('session:activity', shellId);
+    });
+    this._ptyPool.on('session:input', (shellId: string) => {
+      this.emit('session:activity', shellId);
+    });
   }
 
   /**
@@ -146,7 +155,22 @@ export class ShellSessionManager extends EventEmitter {
     }
 
     // 2. Check if session is already open in the pool
-    let session = this._ptyPool.get(shellId);
+    let session: PtySessionLike | undefined = this._ptyPool.get(shellId);
+
+    // Verify daemon liveness -- a stale pool entry (daemon running but
+    // unresponsive after rapid server restarts) would otherwise be trusted,
+    // leaving the session permanently broken.
+    if (session && session instanceof PtyDaemonClient) {
+      const alive = await session.isAlive(3000);
+      if (!alive) {
+        logger.warn({ shellId }, 'Daemon in pool is unresponsive, evicting stale session');
+        // Evict (disconnect) rather than kill -- the daemon process may still
+        // be alive but slow. _spawnOrReconnect will attempt to re-attach and
+        // handles ECONNREFUSED (truly dead daemon) gracefully.
+        this._ptyPool.evict(shellId);
+        session = undefined;
+      }
+    }
 
     if (!session) {
       // Try to spawn/reconnect

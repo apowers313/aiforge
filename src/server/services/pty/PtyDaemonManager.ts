@@ -416,6 +416,18 @@ export class PtyDaemonManager extends EventEmitter {
   }
 
   /**
+   * Disconnect from a single session without killing the daemon.
+   * The daemon keeps running and can be re-attached later.
+   */
+  disconnect(shellId: string): void {
+    const session = this._sessions.get(shellId);
+    if (session) {
+      session.dispose();
+      this._sessions.delete(shellId);
+    }
+  }
+
+  /**
    * Disconnect from all sessions without killing daemons
    * Use this during server shutdown to keep daemons running
    */

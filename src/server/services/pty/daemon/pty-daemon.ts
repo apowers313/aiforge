@@ -49,6 +49,20 @@ let pty: IPty | null = null;
 let isShuttingDown = false;
 let socketServer: ReturnType<typeof createServer> | null = null;
 
+// Per-client backpressure tracking for broadcast()
+interface ClientBackpressureState {
+  clientId: number;
+  paused: boolean;
+  droppedBytes: number;
+}
+const clientState = new Map<Socket, ClientBackpressureState>();
+
+// Monotonic client ID for log correlation
+let nextClientId = 1;
+
+// Safety valve: force-disconnect clients that buffer more than 10 MB of dropped data
+const MAX_DROPPED_BYTES = 10 * 1024 * 1024;
+
 // Track startup time for uptime reporting
 const startTime = Date.now();
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -118,6 +132,8 @@ async function heartbeat(): Promise<void> {
     // Socket file is gone
   }
 
+  const rssMB = Math.round(mem.rss / 1024 / 1024);
+
   log('INFO', '[HEARTBEAT] Daemon alive', {
     pid: process.pid,
     ppid: process.ppid,
@@ -127,12 +143,19 @@ async function heartbeat(): Promise<void> {
     clientCount: clients.size,
     socketExists,
     memoryMB: {
-      rss: Math.round(mem.rss / 1024 / 1024),
+      rss: rssMB,
       heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
       external: Math.round(mem.external / 1024 / 1024),
     },
   });
+
+  // Memory threshold warnings
+  if (rssMB > 512) {
+    log('ERROR', '[HEARTBEAT] Memory usage CRITICAL', { rssMB, pid: process.pid });
+  } else if (rssMB > 256) {
+    log('WARN', '[HEARTBEAT] Memory usage elevated', { rssMB, pid: process.pid });
+  }
 
   // Warn if socket file has disappeared while daemon is still running
   if (!socketExists && !isShuttingDown) {
@@ -177,13 +200,59 @@ async function writeScrollback(type: 'output' | 'input', data: string): Promise<
 }
 
 /**
- * Send a message to all connected clients
+ * Send a message to all connected clients with backpressure handling.
+ *
+ * When a client's kernel buffer is full, client.write() returns false.
+ * We skip further writes until the 'drain' event fires. If a client
+ * accumulates more than MAX_DROPPED_BYTES of skipped data, we force-
+ * disconnect it to prevent unbounded memory growth in the daemon.
  */
 function broadcast(message: DaemonMessage): void {
   const encoded = encodeMessage(message);
+  const encodedLength = Buffer.byteLength(encoded, 'utf-8');
+
   for (const client of clients) {
-    if (!client.destroyed) {
+    if (client.destroyed) {
+      continue;
+    }
+
+    const state = clientState.get(client);
+    if (!state) {
+      // No tracking state -- should not happen, but write anyway
       client.write(encoded);
+      continue;
+    }
+
+    // If client is paused (backpressured), skip the write and track dropped bytes
+    if (state.paused) {
+      state.droppedBytes += encodedLength;
+
+      // Safety valve: if too much data has been dropped, the client is hopelessly
+      // behind. Force-disconnect to prevent the daemon from accumulating state.
+      if (state.droppedBytes > MAX_DROPPED_BYTES) {
+        log('WARN', 'Force-disconnecting backpressured client (safety valve)', {
+          clientId: state.clientId,
+          droppedBytes: state.droppedBytes,
+        });
+        client.destroy();
+      }
+      continue;
+    }
+
+    const ok = client.write(encoded);
+    if (!ok) {
+      // Kernel buffer is full -- pause writes to this client until drain
+      state.paused = true;
+      client.once('drain', () => {
+        if (state.droppedBytes > 0) {
+          log('DEBUG', 'Client drained, resuming writes', {
+            clientId: state.clientId,
+            droppedBytes: state.droppedBytes,
+          });
+        }
+        state.paused = false;
+        state.droppedBytes = 0;
+      });
     }
   }
 }
@@ -312,8 +381,12 @@ function handleClient(client: Socket): void {
     return;
   }
 
+  const clientId = nextClientId++;
   clients.add(client);
-  log('DEBUG', 'Client connected', { clientCount: clients.size });
+  clientState.set(client, { clientId, paused: false, droppedBytes: 0 });
+
+  const logLevel = clients.size > 3 ? 'WARN' : 'DEBUG';
+  log(logLevel, 'Client connected', { clientId, clientCount: clients.size });
 
   let buffer = '';
 
@@ -333,12 +406,15 @@ function handleClient(client: Socket): void {
 
   client.on('close', () => {
     clients.delete(client);
-    log('DEBUG', 'Client disconnected', { clientCount: clients.size });
+    clientState.delete(client);
+    const disconnectLevel = clients.size > 3 ? 'WARN' : 'DEBUG';
+    log(disconnectLevel, 'Client disconnected', { clientId, clientCount: clients.size });
   });
 
   client.on('error', (err) => {
-    log('WARN', 'Client error', { error: err.message });
+    log('WARN', 'Client error', { clientId, error: err.message });
     clients.delete(client);
+    clientState.delete(client);
   });
 }
 

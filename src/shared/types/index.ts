@@ -313,7 +313,8 @@ export type SessionMessageType =
   | 'session.input'
   | 'session.resize'
   | 'session.output'
-  | 'session.error';
+  | 'session.error'
+  | 'shell.activity';
 
 /**
  * Client → Server: Request to open a session
@@ -403,6 +404,15 @@ export interface SessionErrorMessage {
 }
 
 /**
+ * Server → Client: Shell has PTY activity (broadcast to all clients)
+ * Used for activity indicator tracking on shells the client isn't viewing.
+ */
+export interface ShellActivityMessage {
+  type: 'shell.activity';
+  shellId: string;
+}
+
+/**
  * Union of all session messages
  */
 export type SessionMessage =
@@ -413,7 +423,8 @@ export type SessionMessage =
   | SessionInputMessage
   | SessionResizeMessage
   | SessionOutputMessage
-  | SessionErrorMessage;
+  | SessionErrorMessage
+  | ShellActivityMessage;
 
 /**
  * Type guard for session messages
@@ -477,6 +488,17 @@ export function isSessionClosedMessage(msg: unknown): msg is SessionClosedMessag
     typeof msg === 'object' &&
     msg !== null &&
     (msg as { type?: unknown }).type === 'session.closed'
+  );
+}
+
+/**
+ * Type guard for ShellActivityMessage
+ */
+export function isShellActivityMessage(msg: unknown): msg is ShellActivityMessage {
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    (msg as { type?: unknown }).type === 'shell.activity'
   );
 }
 

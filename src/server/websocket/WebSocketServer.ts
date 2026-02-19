@@ -6,7 +6,14 @@ import type { Server as HttpServer } from 'http';
 import { HeartbeatManager, type HeartbeatWebSocketServer } from './heartbeat.js';
 import { TerminalHandler, type TerminalMessage } from './handlers/terminal.js';
 import type { ShellSessionManager } from '@server/services/shell/ShellSessionManager.js';
+import type { ShellActivityMessage } from '@shared/types/index.js';
 import { logger } from '@server/utils/logger.js';
+
+/**
+ * Debounce interval for shell activity broadcasts (ms).
+ * Each shell gets at most one broadcast per interval.
+ */
+const ACTIVITY_BROADCAST_DEBOUNCE_MS = 1000;
 
 /**
  * Extended WebSocket with isAlive tracking
@@ -48,6 +55,27 @@ export function createWebSocketServer(options: WebSocketServerOptions): WsServer
     { interval: heartbeatInterval },
   );
   heartbeatManager.start();
+
+  // Set up debounced activity broadcasts to all connected clients.
+  // When any shell has PTY activity, broadcast a lightweight notification
+  // so clients can update activity indicators for shells they aren't viewing.
+  const activityDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  sessionManager.on('session:activity', (shellId: string) => {
+    if (activityDebounceTimers.has(shellId)) {
+      return; // Already scheduled, skip
+    }
+    const timer = setTimeout(() => {
+      activityDebounceTimers.delete(shellId);
+      const message: ShellActivityMessage = { type: 'shell.activity', shellId };
+      const payload = JSON.stringify(message);
+      for (const client of wss.clients) {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(payload);
+        }
+      }
+    }, ACTIVITY_BROADCAST_DEBOUNCE_MS);
+    activityDebounceTimers.set(shellId, timer);
+  });
 
   // Handle new connections
   wss.on('connection', (ws: ExtendedWebSocket) => {

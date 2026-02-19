@@ -13,8 +13,15 @@ import {
   isSessionErrorMessage,
   isSessionOutputMessage,
   isSessionClosedMessage,
+  isShellActivityMessage,
   type Shell,
 } from '@shared/types/index.js';
+
+/**
+ * Grace period in ms to suppress activity recording after session open or resize.
+ * Prevents false positives from terminal redraws triggered by resize/reconnect.
+ */
+const ACTIVITY_SUPPRESSION_MS = 1500;
 
 const sessionLog = log.terminal;
 
@@ -104,6 +111,9 @@ export function useTerminalSession(
   // Track if session is active for cleanup (avoid stale closure in unmount effect)
   const isSessionActiveRef = useRef(false);
 
+  // Track activity suppression window to avoid false positives from resize/reconnect redraws
+  const activitySuppressedUntilRef = useRef(0);
+
   // Store callbacks in refs to avoid effect dependencies
   const onOutputRef = useRef(onOutput);
   useEffect(() => {
@@ -115,6 +125,12 @@ export function useTerminalSession(
 
   // Handle incoming messages
   const handleMessage = useCallback((message: unknown) => {
+    // shell.activity broadcasts are handled by useShellActivityTracker at the app level.
+    // Skip them here to avoid duplicate processing.
+    if (isShellActivityMessage(message)) {
+      return;
+    }
+
     // Handle session.opened
     if (isSessionOpenedMessage(message)) {
       if (message.shellId !== currentShellIdRef.current) {
@@ -169,7 +185,11 @@ export function useTerminalSession(
       // Scrollback is provided in the session.opened message and stored in state
       if (!message.isScrollback) {
         onOutputRef.current?.(message.data);
-        recordShellActivity(message.shellId);
+        // Only record activity if outside the suppression window
+        // (avoids false positive from resize/reconnect-triggered redraws)
+        if (Date.now() >= activitySuppressedUntilRef.current) {
+          recordShellActivity(message.shellId);
+        }
       }
       return;
     }
@@ -200,6 +220,18 @@ export function useTerminalSession(
   // Handle WebSocket disconnect
   const handleClose = useCallback(() => {
     setState((currentState) => {
+      // If we were in the middle of opening, the in-flight request will never
+      // complete. Treat it as transient connection loss and enter reconnecting.
+      if (currentState.status === 'opening') {
+        pendingRequestIdRef.current = null;
+        reconnectAttemptRef.current = 1;
+        return {
+          status: 'reconnecting',
+          attempt: 1,
+          maxAttempts: maxReconnectAttempts,
+        };
+      }
+
       // Only transition to reconnecting if we were in an open state
       if (currentState.status === 'open') {
         reconnectAttemptRef.current = 1;
@@ -227,6 +259,17 @@ export function useTerminalSession(
         return {
           ...currentState,
           attempt: newAttempt,
+        };
+      }
+
+      // If we're in a retryable error state, re-enter reconnecting so the
+      // auto-reconnect effect can re-attempt session establishment.
+      if (currentState.status === 'error' && currentState.retryable) {
+        reconnectAttemptRef.current = 1;
+        return {
+          status: 'reconnecting',
+          attempt: 1,
+          maxAttempts: maxReconnectAttempts,
         };
       }
 
@@ -292,6 +335,10 @@ export function useTerminalSession(
 
     sessionLog.info({ shellId: currentShellIdRef.current, requestId }, 'Opening session');
 
+    // Suppress activity recording during the post-open grace period
+    // to avoid false positives from scrollback replay and initial resize redraws
+    activitySuppressedUntilRef.current = Date.now() + ACTIVITY_SUPPRESSION_MS;
+
     wsSendRef.current({
       type: 'session.open',
       shellId: currentShellIdRef.current,
@@ -340,6 +387,10 @@ export function useTerminalSession(
     if (state.status !== 'open') {
       return;
     }
+
+    // Suppress activity recording during the post-resize grace period
+    // to avoid false positives from terminal redraws triggered by SIGWINCH
+    activitySuppressedUntilRef.current = Date.now() + ACTIVITY_SUPPRESSION_MS;
 
     wsSendRef.current({
       type: 'session.resize',
