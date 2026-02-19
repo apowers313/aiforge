@@ -2,9 +2,60 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        // Only precache the app shell assets
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3MB - main bundle is ~2.4MB
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // All API and WebSocket requests go straight to network
+        navigateFallback: 'index.html',
+        runtimeCaching: [
+          {
+            urlPattern: /^\/api\//,
+            handler: 'NetworkOnly',
+          },
+          {
+            urlPattern: /^\/ws/,
+            handler: 'NetworkOnly',
+          },
+        ],
+      },
+      manifest: {
+        name: 'AIForge - Agentic IDE',
+        short_name: 'AIForge',
+        description: 'A web-based IDE for 100% agentic coding - manage AI agents through terminals, not files',
+        theme_color: '#1a1b1e',
+        background_color: '#1a1b1e',
+        display: 'standalone',
+        scope: '/',
+        start_url: '/',
+        icons: [
+          {
+            src: 'icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+        ],
+      },
+    }),
+  ],
   root: '.',
   publicDir: 'public',
   build: {
