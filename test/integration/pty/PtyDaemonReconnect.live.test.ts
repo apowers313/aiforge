@@ -260,15 +260,15 @@ describe('PTY Daemon Reconnection', () => {
       const shellId = generateShellId();
       const socketPath = getSocketPath(shellId);
       const { spawn: cpSpawn } = await import('node:child_process');
-      const { join, dirname } = await import('node:path');
+      const nodePath = await import('node:path');
       const { fileURLToPath } = await import('node:url');
 
       const thisFile = fileURLToPath(import.meta.url);
-      const projectRoot = join(dirname(thisFile), '..', '..', '..');
+      const projectRoot = nodePath.join(nodePath.dirname(thisFile), '..', '..', '..');
 
       // Spawn daemon directly (bypassing PtyDaemonManager) so we control the pipes
-      const tsxPath = join(projectRoot, 'node_modules', '.bin', 'tsx');
-      const daemonScript = join(
+      const tsxPath = nodePath.join(projectRoot, 'node_modules', '.bin', 'tsx');
+      const daemonScript = nodePath.join(
         projectRoot,
         'src',
         'server',
@@ -284,7 +284,7 @@ describe('PTY Daemon Reconnection', () => {
         shell: '/bin/bash',
         cols: 80,
         rows: 24,
-        scrollbackDir: join(tmpdir(), 'scrollback-test'),
+        scrollbackDir: nodePath.join(tmpdir(), 'scrollback-test'),
       });
 
       const child = cpSpawn(tsxPath, [daemonScript, config], {
@@ -294,11 +294,16 @@ describe('PTY Daemon Reconnection', () => {
       });
       child.unref();
 
+      const childStdout = child.stdout;
+      const childStderr = child.stderr;
+
       // Wait for "PTY daemon ready:" on stdout
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Daemon startup timeout')), 10000);
+        const timeout = setTimeout(() => {
+          reject(new Error('Daemon startup timeout'));
+        }, 10000);
         let output = '';
-        child.stdout!.on('data', (data: Buffer) => {
+        childStdout.on('data', (data: Buffer) => {
           output += data.toString();
           if (output.includes('PTY daemon ready:')) {
             clearTimeout(timeout);
@@ -313,8 +318,8 @@ describe('PTY Daemon Reconnection', () => {
 
       // Destroy the stdout/stderr pipes -- this simulates what happens when
       // the server process exits and the OS closes the pipe file descriptors
-      child.stdout!.destroy();
-      child.stderr!.destroy();
+      childStdout.destroy();
+      childStderr.destroy();
 
       // Wait for the broken pipe to propagate and the daemon to attempt logging
       // (the daemon logs "Client disconnected" which would trigger the EPIPE)
