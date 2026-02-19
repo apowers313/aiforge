@@ -89,35 +89,27 @@ function resetDataDirectory(): void {
 }
 
 /**
- * Clean up orphaned PTY daemon sockets and processes.
- * This ensures test isolation by removing any persistent daemons from previous runs.
+ * Clean up PTY daemon sockets from the test's data directory.
+ *
+ * With XDG refactoring, sockets live under DATA_DIR/sockets/.
+ * Since DATA_DIR is test-specific (tmp/e2e-data), we can safely delete
+ * all socket files without risk of affecting dev server or production sockets.
  */
 function cleanupDaemonSockets(): void {
-  const tmpDir = '/tmp';
-  const socketPattern = /^ai-ide-pty-.*\.sock$/;
-
+  const socketsDir = join(DATA_DIR, 'sockets');
   try {
-    const files = readdirSync(tmpDir);
+    const files = readdirSync(socketsDir);
     for (const file of files) {
-      if (socketPattern.test(file)) {
-        const socketPath = join(tmpDir, file);
+      if (file.endsWith('.sock')) {
         try {
-          unlinkSync(socketPath);
+          unlinkSync(join(socketsDir, file));
         } catch {
-          // Socket may be in use or already removed
+          // Socket may have been removed by another process
         }
       }
     }
   } catch {
-    // /tmp not readable - unlikely but handle gracefully
-  }
-
-  // Kill any orphaned daemon processes
-  // The daemons are spawned with 'pty-daemon' in the command
-  try {
-    execSync('pkill -f "pty-daemon" 2>/dev/null || true', { encoding: 'utf-8' });
-  } catch {
-    // No matching processes or pkill failed
+    // Socket dir doesn't exist yet
   }
 }
 
@@ -150,7 +142,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
       try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
 
-      // Clean up any orphaned daemon processes and sockets from previous runs
+      // Clean up any stale daemon sockets from previous runs
       cleanupDaemonSockets();
 
       // Reset data directory while servers are stopped
@@ -181,7 +173,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       try { run('servherd stop e2e-backend'); } catch { /* ignore if not running */ }
       try { run('servherd stop e2e-frontend'); } catch { /* ignore if not running */ }
 
-      // Clean up any lingering daemon processes
+      // Clean up any stale daemon sockets
       cleanupDaemonSockets();
     }
   }, { scope: 'worker' }],

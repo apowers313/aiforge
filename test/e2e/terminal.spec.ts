@@ -239,6 +239,7 @@ test.describe.serial('Terminal', () => {
     if (!apiResponse) throw new Error('API response is null');
     const { shellId } = apiResponse;
     expect(shellId).toBeTruthy();
+    if (!shellId) throw new Error('shellId is undefined');
 
     // Delete the shell via API while it's connected
     await page.evaluate(
@@ -297,5 +298,50 @@ test.describe.serial('Terminal', () => {
 
     // Verify scrollback is preserved (original marker should still be visible)
     await expect(terminalContainer.getByText(marker, { exact: true })).toBeVisible({ timeout: 5000 });
+  });
+
+  test('copies selected terminal text to clipboard on selection', async ({ page, context }) => {
+    // Grant clipboard permissions so we can read/write the clipboard in the test
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+
+    // Clear the clipboard to ensure a clean starting state
+    await page.evaluate(() => navigator.clipboard.writeText(''));
+
+    // Create a shell
+    await page.locator('[data-testid="add-shell-button"]').first().click();
+    const terminalContainer = page.locator('[data-testid="terminal-container"]');
+    await expect(terminalContainer).toBeVisible({ timeout: 10000 });
+    await expect(terminalContainer.getByText('connected')).toBeVisible({ timeout: 5000 });
+
+    // Focus the terminal and type a unique marker
+    const xtermScreen = terminalContainer.locator('.xterm-screen');
+    await xtermScreen.click();
+    await page.waitForTimeout(500);
+
+    const marker = `COPYTEST${String(Date.now())}`;
+    await page.keyboard.type(`echo ${marker}\n`, { delay: 50 });
+    await expect(terminalContainer.getByText(marker, { exact: true })).toBeVisible({ timeout: 10000 });
+
+    // Select the output line by triple-clicking on it.
+    // xterm exposes text as accessible text nodes; we find the marker's position
+    // and triple-click at those coordinates to trigger xterm's line selection.
+    const markerLocator = terminalContainer.getByText(marker, { exact: true });
+    const markerBox = await markerLocator.boundingBox();
+    expect(markerBox).not.toBeNull();
+    if (!markerBox) throw new Error('Could not locate marker text');
+
+    await page.mouse.click(
+      markerBox.x + markerBox.width / 2,
+      markerBox.y + markerBox.height / 2,
+      { clickCount: 3 },
+    );
+
+    // Wait for onSelectionChange to fire and clipboard write to complete
+    await page.waitForTimeout(500);
+
+    // The clipboard should already contain the selected text (Layer 2:
+    // copy-on-select via onSelectionChange). No Ctrl+C needed.
+    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+    expect(clipboardText.trim()).toContain(marker);
   });
 });

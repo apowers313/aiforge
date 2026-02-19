@@ -27,7 +27,7 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
 
     expect(MockWebSocket.instances).toHaveLength(1);
-    expect(MockWebSocket.instances[0].url).toBe('ws://localhost:9000/ws/terminal');
+    expect(MockWebSocket.instances[0]?.url).toBe('ws://localhost:9000/ws/terminal');
   });
 
   it('reconnects after disconnect with exponential backoff', () => {
@@ -35,17 +35,17 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
 
     // First disconnect - base delay + jitter (up to 2s)
-    MockWebSocket.instances[0].simulateClose();
+    MockWebSocket.instances[0]?.simulateClose();
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
     // Second disconnect - 2s + jitter (up to 3s)
-    MockWebSocket.instances[1].simulateClose();
+    MockWebSocket.instances[1]?.simulateClose();
     vi.advanceTimersByTime(3000);
     expect(MockWebSocket.instances).toHaveLength(3);
 
     // Third disconnect - 4s + jitter (up to 5s)
-    MockWebSocket.instances[2].simulateClose();
+    MockWebSocket.instances[2]?.simulateClose();
     vi.advanceTimersByTime(5000);
     expect(MockWebSocket.instances).toHaveLength(4);
   });
@@ -55,13 +55,13 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
 
     // First disconnect - wait for reconnect
-    MockWebSocket.instances[0].simulateClose();
+    MockWebSocket.instances[0]?.simulateClose();
     vi.advanceTimersByTime(2000); // 1s base + jitter
     expect(MockWebSocket.instances).toHaveLength(2);
 
     // Successful connection, then disconnect
-    MockWebSocket.instances[1].simulateOpen();
-    MockWebSocket.instances[1].simulateClose();
+    MockWebSocket.instances[1]?.simulateOpen();
+    MockWebSocket.instances[1]?.simulateClose();
 
     // Should be back to base delay (reconnect attempt reset to 0)
     vi.advanceTimersByTime(2000); // 1s base + jitter
@@ -77,22 +77,22 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
 
     // First reconnect attempt (uses base delay + jitter)
-    MockWebSocket.instances[0].simulateClose();
+    MockWebSocket.instances[0]?.simulateClose();
     vi.advanceTimersByTime(2000);
     expect(MockWebSocket.instances).toHaveLength(2);
 
     // Second reconnect attempt (2s + jitter)
-    MockWebSocket.instances[1].simulateClose();
+    MockWebSocket.instances[1]?.simulateClose();
     vi.advanceTimersByTime(3000);
     expect(MockWebSocket.instances).toHaveLength(3);
 
     // Third reconnect attempt (4s + jitter)
-    MockWebSocket.instances[2].simulateClose();
+    MockWebSocket.instances[2]?.simulateClose();
     vi.advanceTimersByTime(5000);
     expect(MockWebSocket.instances).toHaveLength(4);
 
     // Should stop reconnecting after max attempts (3)
-    MockWebSocket.instances[3].simulateClose();
+    MockWebSocket.instances[3]?.simulateClose();
     vi.advanceTimersByTime(60000);
 
     // No more reconnects - max attempts reached
@@ -109,7 +109,7 @@ describe('ReconnectingWebSocket', () => {
 
     // Many reconnection attempts - delay should cap at 30000ms
     for (let i = 0; i < 10; i++) {
-      MockWebSocket.instances[i].simulateClose();
+      MockWebSocket.instances[i]?.simulateClose();
       vi.advanceTimersByTime(60000); // Advance past any delay
     }
 
@@ -123,11 +123,11 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
 
     // Simulate connection open
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
 
     rws.send({ type: 'input', shellId: 'shell-1', data: 'test' });
 
-    expect(MockWebSocket.instances[0].sent).toContainEqual({
+    expect(MockWebSocket.instances[0]?.sent).toContainEqual({
       type: 'input',
       shellId: 'shell-1',
       data: 'test',
@@ -142,13 +142,13 @@ describe('ReconnectingWebSocket', () => {
     rws.send({ type: 'input', shellId: 'shell-1', data: 'queued' });
 
     // Message should not be sent yet
-    expect(MockWebSocket.instances[0].sent).toHaveLength(0);
+    expect(MockWebSocket.instances[0]?.sent).toHaveLength(0);
 
     // Now open the connection
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
 
     // Message should be sent
-    expect(MockWebSocket.instances[0].sent).toContainEqual({
+    expect(MockWebSocket.instances[0]?.sent).toContainEqual({
       type: 'input',
       shellId: 'shell-1',
       data: 'queued',
@@ -160,8 +160,8 @@ describe('ReconnectingWebSocket', () => {
     rws = new ReconnectingWebSocket('ws://localhost:9000/ws/terminal', { onMessage });
     rws.connect();
 
-    MockWebSocket.instances[0].simulateOpen();
-    MockWebSocket.instances[0].simulateMessage({ type: 'output', data: 'hello' });
+    MockWebSocket.instances[0]?.simulateOpen();
+    MockWebSocket.instances[0]?.simulateMessage({ type: 'output', data: 'hello' });
 
     expect(onMessage).toHaveBeenCalledWith({ type: 'output', data: 'hello' });
   });
@@ -171,7 +171,7 @@ describe('ReconnectingWebSocket', () => {
     rws = new ReconnectingWebSocket('ws://localhost:9000/ws/terminal', { onOpen });
     rws.connect();
 
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
 
     expect(onOpen).toHaveBeenCalled();
   });
@@ -181,7 +181,7 @@ describe('ReconnectingWebSocket', () => {
     rws = new ReconnectingWebSocket('ws://localhost:9000/ws/terminal', { onClose });
     rws.connect();
 
-    MockWebSocket.instances[0].simulateClose();
+    MockWebSocket.instances[0]?.simulateClose();
 
     expect(onClose).toHaveBeenCalled();
   });
@@ -193,7 +193,7 @@ describe('ReconnectingWebSocket', () => {
 
     // Create a mock error event (not an actual Error object)
     const errorEvent = { type: 'error' } as Event;
-    MockWebSocket.instances[0].onerror?.(errorEvent);
+    MockWebSocket.instances[0]?.onerror?.(errorEvent);
 
     expect(onError).toHaveBeenCalled();
   });
@@ -205,10 +205,10 @@ describe('ReconnectingWebSocket', () => {
     rws.connect();
     expect(rws.isConnected()).toBe(false); // Still connecting
 
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
     expect(rws.isConnected()).toBe(true);
 
-    MockWebSocket.instances[0].simulateClose();
+    MockWebSocket.instances[0]?.simulateClose();
     expect(rws.isConnected()).toBe(false);
   });
 
@@ -216,7 +216,7 @@ describe('ReconnectingWebSocket', () => {
     rws = new ReconnectingWebSocket('ws://localhost:9000/ws/terminal');
     rws.connect();
 
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
     rws.close();
 
     // Should not reconnect after explicit close
@@ -228,9 +228,9 @@ describe('ReconnectingWebSocket', () => {
     rws = new ReconnectingWebSocket('ws://localhost:9000/ws/terminal');
     rws.connect();
 
-    MockWebSocket.instances[0].simulateOpen();
+    MockWebSocket.instances[0]?.simulateOpen();
     // Close with normal code
-    MockWebSocket.instances[0].close(1000, 'Normal closure');
+    MockWebSocket.instances[0]?.close(1000, 'Normal closure');
 
     vi.advanceTimersByTime(60000);
     // Should not have created new connections

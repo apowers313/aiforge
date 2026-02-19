@@ -19,11 +19,6 @@ import {
 const sessionLog = log.terminal;
 
 /**
- * Window in milliseconds after input during which output counts as activity.
- */
-const INPUT_ACTIVITY_WINDOW_MS = 30000; // 30 seconds
-
-/**
  * Session state union type
  */
 export type SessionState =
@@ -103,9 +98,6 @@ export function useTerminalSession(
   // Track reconnect attempts
   const reconnectAttemptRef = useRef(0);
 
-  // Track last input time for activity tracking
-  const lastInputTimeRef = useRef<number | null>(null);
-
   // Track if we've auto-opened to prevent duplicates
   const hasAutoOpenedRef = useRef(false);
 
@@ -177,14 +169,7 @@ export function useTerminalSession(
       // Scrollback is provided in the session.opened message and stored in state
       if (!message.isScrollback) {
         onOutputRef.current?.(message.data);
-
-        // Record activity using input-aware tracking
-        const lastInputTime = lastInputTimeRef.current;
-        const timeSinceInput = lastInputTime ? Date.now() - lastInputTime : Infinity;
-
-        if (timeSinceInput < INPUT_ACTIVITY_WINDOW_MS) {
-          recordShellActivity(message.shellId);
-        }
+        recordShellActivity(message.shellId);
       }
       return;
     }
@@ -346,8 +331,6 @@ export function useTerminalSession(
       data,
     });
 
-    // Track input time for activity tracking
-    lastInputTimeRef.current = Date.now();
     // Record activity for user input
     recordShellActivity(currentShellIdRef.current);
   }, [state.status, recordShellActivity]);

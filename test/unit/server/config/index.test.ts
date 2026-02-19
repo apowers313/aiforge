@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadConfig, resetConfig } from '../../../../src/server/config/index.js';
+import { getConfigPath } from '../../../../src/server/paths.js';
 import * as fs from 'node:fs';
 
 // Mock fs module to prevent reading real config file
@@ -25,6 +26,7 @@ describe('ServerConfig', () => {
     delete process.env.AIFORGE_AUTH_GUID;
     delete process.env.AIFORGE_SCROLLBACK_LINES;
     delete process.env.AIFORGE_LOG_LEVEL;
+    delete process.env.XDG_CONFIG_HOME;
     // Mock fs to not find config file
     vi.mocked(fs.existsSync).mockReturnValue(false);
   });
@@ -102,5 +104,27 @@ describe('ServerConfig', () => {
       const config = loadConfig();
       expect(config.logLevel).toBe(level);
     }
+  });
+
+  it('reads config from XDG config path', () => {
+    const xdgConfigPath = getConfigPath();
+    vi.mocked(fs.existsSync).mockImplementation(
+      (p) => p === xdgConfigPath,
+    );
+    vi.mocked(fs.readFileSync).mockReturnValue('{"port": 9042}');
+    const config = loadConfig();
+    expect(config.port).toBe(9042);
+  });
+
+  it('reads config from custom XDG_CONFIG_HOME', () => {
+    process.env.XDG_CONFIG_HOME = '/custom/config';
+    const expectedPath = '/custom/config/aiforge/config.json';
+    vi.mocked(fs.existsSync).mockImplementation(
+      (p) => p === expectedPath,
+    );
+    vi.mocked(fs.readFileSync).mockReturnValue('{"port": 9050, "host": "127.0.0.1"}');
+    const config = loadConfig();
+    expect(config.port).toBe(9050);
+    expect(config.host).toBe('127.0.0.1');
   });
 });

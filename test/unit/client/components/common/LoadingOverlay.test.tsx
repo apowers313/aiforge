@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
-import { LoadingOverlay } from '@client/components/common/LoadingOverlay';
+import { LoadingOverlay } from '@client/components/common/LoadingOverlay.js';
 
 const renderWithProviders = (ui: React.ReactElement): ReturnType<typeof render> => {
   return render(<MantineProvider>{ui}</MantineProvider>);

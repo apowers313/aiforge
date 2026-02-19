@@ -69,7 +69,7 @@ describe('PtyManager (Live)', () => {
 
     expect(exitEvent).toBeDefined();
     expect(exitEvent).not.toBeNull();
-    expect((exitEvent as { exitCode: number }).exitCode).toBe(0);
+    expect((exitEvent as unknown as { exitCode: number }).exitCode).toBe(0);
   });
 
   it('runs command in specified directory', async () => {

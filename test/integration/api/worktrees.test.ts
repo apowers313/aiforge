@@ -572,7 +572,7 @@ describe('Worktrees API', () => {
 
       const listBody = listResponse.body as WorktreesResponse;
       expect(listBody.worktrees).toHaveLength(1);
-      expect(listBody.worktrees[0].isMain).toBe(true);
+      expect(listBody.worktrees[0]?.isMain).toBe(true);
     });
 
     it('force deletes dirty worktree with query param', async () => {

@@ -359,6 +359,17 @@ async function main(): Promise<void> {
     arch: process.arch,
   });
 
+  // --- Broken Pipe Protection ---
+  // The daemon's stdout/stderr are pipes back to the parent server process.
+  // When the server restarts (tsx watch, SIGTERM, etc.), the pipe read-ends close.
+  // Without these handlers, the next console.log/console.error would cause an
+  // EPIPE error on process.stdout/stderr, which becomes an uncaughtException,
+  // which triggers daemon shutdown -- killing the shell the user was working in.
+  // After startup, all runtime logging goes through the remote logger (HTTP),
+  // so broken stdout/stderr pipes are harmless and should be silently ignored.
+  process.stdout.on('error', () => { /* ignore EPIPE from broken pipe */ });
+  process.stderr.on('error', () => { /* ignore EPIPE from broken pipe */ });
+
   // --- Signal Handlers ---
 
   // Handle SIGHUP - ignore it so we survive parent death
@@ -474,7 +485,10 @@ async function main(): Promise<void> {
       cols,
       rows,
       cwd,
-      env: process.env as Record<string, string>,
+      env: {
+        ...process.env,
+        PATH: (process.env.PATH ?? '').split(':').filter((p) => !p.includes('node_modules/.bin')).join(':'),
+      } as Record<string, string>,
     });
     log('INFO', 'PTY process spawned', { ptyPid: pty.pid });
   } catch (err) {

@@ -32,9 +32,9 @@ describe('ScrollbackStore', () => {
 
       const entries = store.getFromMemory('shell-1');
       expect(entries).toHaveLength(1);
-      expect(entries[0].type).toBe('output');
-      expect(entries[0].data).toBe('hello');
-      expect(entries[0].ts).toBeDefined();
+      expect(entries[0]?.type).toBe('output');
+      expect(entries[0]?.data).toBe('hello');
+      expect(entries[0]?.ts).toBeDefined();
     });
 
     it('adds both input and output entries', () => {
@@ -44,9 +44,9 @@ describe('ScrollbackStore', () => {
 
       const entries = store.getFromMemory('shell-1');
       expect(entries).toHaveLength(3);
-      expect(entries[0].type).toBe('output');
-      expect(entries[1].type).toBe('input');
-      expect(entries[2].type).toBe('output');
+      expect(entries[0]?.type).toBe('output');
+      expect(entries[1]?.type).toBe('input');
+      expect(entries[2]?.type).toBe('output');
     });
 
     it('keeps entries separate per shell', () => {
@@ -55,8 +55,8 @@ describe('ScrollbackStore', () => {
 
       expect(store.getFromMemory('shell-1')).toHaveLength(1);
       expect(store.getFromMemory('shell-2')).toHaveLength(1);
-      expect(store.getFromMemory('shell-1')[0].data).toBe('shell 1 output');
-      expect(store.getFromMemory('shell-2')[0].data).toBe('shell 2 output');
+      expect(store.getFromMemory('shell-1')[0]?.data).toBe('shell 1 output');
+      expect(store.getFromMemory('shell-2')[0]?.data).toBe('shell 2 output');
     });
 
     it('trims memory buffer when exceeding maxMemoryEntries', async () => {
@@ -71,8 +71,8 @@ describe('ScrollbackStore', () => {
 
       const entries = smallStore.getFromMemory('shell-1');
       expect(entries).toHaveLength(5);
-      expect(entries[0].data).toBe('entry 5');
-      expect(entries[4].data).toBe('entry 9');
+      expect(entries[0]?.data).toBe('entry 5');
+      expect(entries[4]?.data).toBe('entry 9');
 
       // Clean up the additional store to avoid directory not empty errors
       await smallStore.flush();
@@ -106,9 +106,9 @@ describe('ScrollbackStore', () => {
       const loaded = await store.load('shell-1');
 
       expect(loaded).toHaveLength(3);
-      expect(loaded[0].data).toBe('line 1');
-      expect(loaded[1].data).toBe('cmd\n');
-      expect(loaded[2].data).toBe('line 2');
+      expect(loaded[0]?.data).toBe('line 1');
+      expect(loaded[1]?.data).toBe('cmd\n');
+      expect(loaded[2]?.data).toBe('line 2');
     });
 
     it('returns existing memory buffer if already loaded', async () => {
@@ -117,7 +117,7 @@ describe('ScrollbackStore', () => {
       const loaded = await store.load('shell-1');
 
       expect(loaded).toHaveLength(1);
-      expect(loaded[0].data).toBe('memory entry');
+      expect(loaded[0]?.data).toBe('memory entry');
     });
 
     it('returns empty array for non-existent shell', async () => {
@@ -137,8 +137,8 @@ describe('ScrollbackStore', () => {
       const loaded = await store.load('shell-1');
 
       expect(loaded).toHaveLength(2);
-      expect(loaded[0].data).toBe('valid');
-      expect(loaded[1].data).toBe('also valid');
+      expect(loaded[0]?.data).toBe('valid');
+      expect(loaded[1]?.data).toBe('also valid');
     });
 
     it('trims loaded entries to maxMemoryEntries', async () => {
@@ -158,8 +158,8 @@ describe('ScrollbackStore', () => {
       const loaded = await smallStore.load('shell-1');
 
       expect(loaded).toHaveLength(3);
-      expect(loaded[0].data).toBe('entry 7');
-      expect(loaded[2].data).toBe('entry 9');
+      expect(loaded[0]?.data).toBe('entry 7');
+      expect(loaded[2]?.data).toBe('entry 9');
 
       // Clean up the additional store to avoid directory not empty errors
       await smallStore.flush();
@@ -178,7 +178,7 @@ describe('ScrollbackStore', () => {
       const entries = store.getFromMemory('shell-1');
 
       expect(entries).toHaveLength(1);
-      expect(entries[0].data).toBe('data');
+      expect(entries[0]?.data).toBe('data');
     });
   });
 

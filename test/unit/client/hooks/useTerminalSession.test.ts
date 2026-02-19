@@ -39,6 +39,7 @@ function createMockShell(id: string): Shell {
     socketPath: '/tmp/shell.sock',
     lastActivityAt: new Date().toISOString(),
     done: false,
+    worktreePath: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

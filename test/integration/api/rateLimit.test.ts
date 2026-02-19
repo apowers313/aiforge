@@ -55,7 +55,7 @@ describe('Rate Limiting', () => {
 
     // The rate limited responses should have the expected message
     if (rateLimited.length > 0) {
-      const body = rateLimited[0].body as { message: string };
+      const body = rateLimited[0]?.body as { message: string };
       expect(body.message).toContain('Too many');
     }
   });

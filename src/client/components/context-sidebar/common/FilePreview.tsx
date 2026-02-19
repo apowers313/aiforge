@@ -3,7 +3,7 @@
  */
 import { Box, Text, Group, ActionIcon, Stack, Alert, Loader, Center } from '@mantine/core';
 import { IconX, IconAlertCircle } from '@tabler/icons-react';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 import MDEditor from '@uiw/react-md-editor';
 import { PhotoProvider, PhotoView } from 'react-photo-view';
 import 'react-photo-view/dist/react-photo-view.css';
@@ -88,6 +88,23 @@ interface PreviewContentProps {
   filePath: string;
 }
 
+const handleEditorMount: OnMount = (editor) => {
+  // Ensure Ctrl/Cmd+C copies selected text to system clipboard
+  const domNode = editor.getDomNode();
+  if (domNode) {
+    domNode.addEventListener('copy', (e) => {
+      const selection = editor.getSelection();
+      if (selection) {
+        const text = editor.getModel()?.getValueInRange(selection);
+        if (text && e.clipboardData) {
+          e.clipboardData.setData('text/plain', text);
+          e.preventDefault();
+        }
+      }
+    });
+  }
+};
+
 function PreviewContent({ content, language, fileType, filePath }: PreviewContentProps): React.ReactElement {
   // Image preview
   if (fileType === 'image') {
@@ -127,6 +144,7 @@ function PreviewContent({ content, language, fileType, filePath }: PreviewConten
       language={language}
       value={content}
       theme="vs-dark"
+      onMount={handleEditorMount}
       options={{
         readOnly: true,
         minimap: { enabled: false },

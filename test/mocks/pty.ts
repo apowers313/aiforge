@@ -51,7 +51,7 @@ export class MockPty extends EventEmitter implements IPty {
    */
   onExit = (listener: (e: { exitCode: number; signal?: number }) => void): IDisposable => {
     const wrappedListener = (exitCode: number, signal?: number): void => {
-      listener({ exitCode, signal });
+      listener(signal !== undefined ? { exitCode, signal } : { exitCode });
     };
     this._exitListeners.push(wrappedListener);
     return {
@@ -63,18 +63,10 @@ export class MockPty extends EventEmitter implements IPty {
   };
 
   /**
-   * Deprecated on() method for backwards compatibility
+   * Deprecated on() method for backwards compatibility.
+   * EventEmitter.on() is inherited and works with simulateData/simulateExit
+   * which call this.emit() in addition to direct listener calls.
    */
-  on(event: 'data', listener: (data: string) => void): void;
-  on(event: 'exit', listener: (exitCode: number, signal?: number) => void): void;
-  on(event: string, listener: (...args: unknown[]) => void): void {
-    if (event === 'data') {
-      this._dataListeners.push(listener as (data: string) => void);
-    } else if (event === 'exit') {
-      this._exitListeners.push(listener as (exitCode: number, signal?: number) => void);
-    }
-    super.on(event, listener);
-  }
 
   /**
    * Write data to the PTY

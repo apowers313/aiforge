@@ -1,10 +1,10 @@
 /**
  * ProjectService - Project business logic
  */
-import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { stat } from 'node:fs/promises';
 import type { Project } from '@shared/types/index.js';
+import { projectIdFromPath } from '../../utils/projectId.js';
 import type { ProjectStore } from '../../storage/stores/ProjectStore.js';
 import type { ShellStore } from '../../storage/stores/ShellStore.js';
 
@@ -62,7 +62,7 @@ export class ProjectService {
 
     const now = new Date().toISOString();
     const project: Project = {
-      id: randomUUID(),
+      id: projectIdFromPath(path),
       name: basename(path),
       path,
       createdAt: now,

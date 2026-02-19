@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { ProjectItem } from '@client/components/projects/ProjectItem';
-import { useUIStore } from '@client/stores/uiStore';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
-import type { Project } from '@shared/types';
+import { userEvent } from '@testing-library/user-event';
+import { ProjectItem } from '@client/components/projects/ProjectItem.js';
+import { useUIStore } from '@client/stores/uiStore.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
+import type { Project } from '@shared/types/index.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
-import { ErrorBoundary } from '@client/components/common/ErrorBoundary';
+import { ErrorBoundary } from '@client/components/common/ErrorBoundary.js';
 
 const renderWithProviders = (ui: React.ReactElement): ReturnType<typeof render> => {
   return render(<MantineProvider>{ui}</MantineProvider>);

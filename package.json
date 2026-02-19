@@ -107,7 +107,6 @@
     "lucide-react": "^0.562.0",
     "pino": "^9.6.0",
     "proper-lockfile": "^4.1.2",
-    "pupt": "^1.3.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-photo-view": "^1.2.7",

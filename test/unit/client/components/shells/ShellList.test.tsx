@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { screen, waitFor, renderHook, act } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { ShellList } from '@client/components/shells/ShellList';
-import { ShellItem, useProjectAiStatus, type WorktreeStatusInfo } from '@client/components/shells/ShellItem';
-import { useUIStore } from '@client/stores/uiStore';
-import { renderWithProviders, createTestQueryClient, createTestWrapper } from '../../../../utils/testQueryClient';
-import type { Shell } from '@shared/types';
+import { userEvent } from '@testing-library/user-event';
+import { ShellList } from '@client/components/shells/ShellList.js';
+import { ShellItem, useProjectAiStatus, type WorktreeStatusInfo } from '@client/components/shells/ShellItem.js';
+import { useUIStore } from '@client/stores/uiStore.js';
+import { renderWithProviders, createTestQueryClient, createTestWrapper } from '../../../../utils/testQueryClient.js';
+import type { Shell } from '@shared/types/index.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally
@@ -20,8 +20,10 @@ const mockShell: Shell = {
   status: 'active',
   type: 'bash',
   pid: 1234,
+  socketPath: null,
   lastActivityAt: null,
   done: false,
+  worktreePath: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };
@@ -34,8 +36,10 @@ const mockAiShell: Shell = {
   status: 'active',
   type: 'ai',
   pid: 5678,
+  socketPath: null,
   lastActivityAt: null,
   done: false,
+  worktreePath: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };

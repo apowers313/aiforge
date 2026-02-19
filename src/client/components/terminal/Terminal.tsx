@@ -262,6 +262,144 @@ export function Terminal({ shellId }: TerminalProps): React.ReactElement {
     };
   }, [terminalElement]);
 
+  // Terminal clipboard support (copy + paste).
+  //
+  // xterm.js renders to a canvas so there is never a native text selection and
+  // the browser's built-in Cmd/Ctrl+C/V have nothing to operate on.
+  //
+  // Platform-specific behavior:
+  //   macOS:         Cmd+C = copy, Cmd+V = paste, Ctrl+C = always SIGINT
+  //   Windows/Linux: Ctrl+C = copy if selection else SIGINT, Ctrl+V = paste
+  //
+  // Copy uses two layers:
+  //   Layer 1 -- attachCustomKeyEventHandler: intercepts the copy shortcut
+  //     before xterm sends ^C, then clears the selection so the next press
+  //     sends SIGINT.
+  //   Layer 2 -- onSelectionChange: proactively writes to the clipboard
+  //     whenever text is selected (X11/PuTTY-style). Handles iPadOS Safari
+  //     where Cmd+C keydown may be swallowed by the browser.
+  //
+  // Paste: intercepts Cmd+V / Ctrl+V, reads from clipboard async, and writes
+  //   the text to the terminal session.
+  useEffect(() => {
+    const xterm = xtermRef.current;
+    if (!xterm || !terminalElement) return;
+
+    const isMac = /Macintosh|Mac OS|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    /**
+     * Copy text to the system clipboard, trying the async Clipboard API first
+     * (requires secure context) and falling back to execCommand (works over
+     * plain HTTP).
+     */
+    const copyToClipboard = (text: string): void => {
+      // The Clipboard API requires a secure context (HTTPS or localhost).
+      // When unavailable (e.g. plain HTTP on a LAN), fall back to execCommand.
+      const clipboard = navigator.clipboard as Clipboard | undefined;
+      if (clipboard) {
+        clipboard.writeText(text).catch((_err: unknown) => {
+          execCommandCopy(text);
+        });
+      } else {
+        execCommandCopy(text);
+      }
+    };
+
+    /**
+     * Fallback copy using a temporary off-screen textarea and the deprecated
+     * but widely-supported document.execCommand('copy'). Works in insecure
+     * contexts (plain HTTP) where the Clipboard API is unavailable.
+     */
+    const execCommandCopy = (text: string): void => {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.setAttribute('readonly', '');
+      el.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+      document.body.appendChild(el);
+      el.select();
+      // execCommand is deprecated but is the only way to copy in insecure
+      // contexts (plain HTTP). The Clipboard API requires HTTPS.
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    };
+
+    /**
+     * Read text from the system clipboard and write it to the terminal.
+     * Uses the async Clipboard API (requires secure context + permission).
+     */
+    const pasteFromClipboard = (): void => {
+      const clipboard = navigator.clipboard as Clipboard | undefined;
+      if (clipboard) {
+        clipboard.readText().then((text) => {
+          if (text) {
+            writeRef.current(text);
+          }
+        }).catch(() => {
+          // Clipboard read failed (permission denied or insecure context).
+          // No fallback available -- reading requires the Clipboard API.
+        });
+      }
+    };
+
+    // Intercept platform copy and paste shortcuts before xterm processes them.
+    xterm.attachCustomKeyEventHandler((ev: KeyboardEvent): boolean => {
+      if (ev.type !== 'keydown') return true;
+
+      const isPlatformModifier = isMac
+        ? (ev.metaKey && !ev.ctrlKey)
+        : (ev.ctrlKey && !ev.metaKey);
+
+      // Copy
+      if (ev.key === 'c') {
+        if (isMac) {
+          // macOS: only Cmd+C triggers copy. Ctrl+C always passes through as SIGINT.
+          if (ev.metaKey && !ev.ctrlKey) {
+            const selection = xterm.getSelection();
+            if (selection) {
+              copyToClipboard(selection);
+              xterm.clearSelection();
+              return false;
+            }
+          }
+        } else {
+          // Windows/Linux: Ctrl+C copies if there is a selection (matching
+          // Windows Terminal behavior), then clears so next Ctrl+C = SIGINT.
+          if (ev.ctrlKey && !ev.metaKey) {
+            const selection = xterm.getSelection();
+            if (selection) {
+              copyToClipboard(selection);
+              xterm.clearSelection();
+              return false;
+            }
+          }
+        }
+      }
+
+      // Paste
+      if (ev.key === 'v' && isPlatformModifier) {
+        pasteFromClipboard();
+        return false;
+      }
+
+      return true;
+    });
+
+    // Layer 2: copy to clipboard on selection change so the clipboard already
+    // has the text before the user presses Cmd/Ctrl+C. This handles iPadOS
+    // Safari where Cmd+C may not fire a keydown event.
+    const selectionDisposable = xterm.onSelectionChange(() => {
+      const selection = xterm.getSelection();
+      if (selection) {
+        copyToClipboard(selection);
+      }
+    });
+
+    return (): void => {
+      selectionDisposable.dispose();
+    };
+  }, [terminalElement]);
+
   // Update font size when it changes in the store
   useEffect(() => {
     const xterm = xtermRef.current;

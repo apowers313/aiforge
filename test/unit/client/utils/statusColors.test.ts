@@ -2,7 +2,7 @@
  * Tests for statusColors utility functions
  */
 import { describe, it, expect } from 'vitest';
-import { getAiStatusColor } from '@client/utils/statusColors';
+import { getAiStatusColor } from '@client/utils/statusColors.js';
 
 describe('statusColors', () => {
   describe('getAiStatusColor', () => {

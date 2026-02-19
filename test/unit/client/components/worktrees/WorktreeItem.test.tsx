@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { WorktreeItem } from '@client/components/worktrees/WorktreeItem';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
-import type { WorktreeWithStatus, Shell } from '@shared/types';
+import { userEvent } from '@testing-library/user-event';
+import { WorktreeItem } from '@client/components/worktrees/WorktreeItem.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
+import type { WorktreeWithStatus, Shell } from '@shared/types/index.js';
 import type { QueryClient } from '@tanstack/react-query';
-import { useUIStore } from '@client/stores/uiStore';
+import { useUIStore } from '@client/stores/uiStore.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();

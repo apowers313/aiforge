@@ -33,7 +33,7 @@ Environment Variables:
   AIFORGE_AUTH_GUID         Authentication GUID (empty = no auth)
   AIFORGE_SCROLLBACK_LINES  Terminal scrollback size (default: 10000)
   AIFORGE_LOG_LEVEL         Log level: trace/debug/info/warn/error/fatal (default: info)
-  AIFORGE_DATA_DIR          Data directory (default: ~/.aiforge)
+  AIFORGE_DATA_DIR          Data directory override (default: ~/.local/share/aiforge)
   AIFORGE_HTTPS_CERT        Path to HTTPS certificate file
   AIFORGE_HTTPS_KEY         Path to HTTPS private key file
 

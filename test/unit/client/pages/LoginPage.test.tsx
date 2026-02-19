@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { userEvent } from '@testing-library/user-event';
 import { MantineProvider } from '@mantine/core';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { LoginPage } from '@client/pages/LoginPage';
-import { queryKeys } from '@client/hooks/queryKeys';
+import { LoginPage } from '@client/pages/LoginPage.js';
+import { queryKeys } from '@client/hooks/queryKeys.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, act } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { Header } from '@client/components/layout/Header';
-import { useUIStore } from '@client/stores/uiStore';
-import { renderWithProviders } from '@test/utils/testQueryClient';
+import { userEvent } from '@testing-library/user-event';
+import { Header } from '@client/components/layout/Header.js';
+import { useUIStore } from '@client/stores/uiStore.js';
+import { renderWithProviders } from '@test/utils/testQueryClient.js';
 
 describe('Header', () => {
   beforeEach(() => {

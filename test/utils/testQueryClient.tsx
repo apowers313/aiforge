@@ -49,9 +49,7 @@ export function renderWithProviders(
 ): RenderResult & { queryClient: QueryClient } {
   const client = queryClient ?? createTestQueryClient();
   const Wrapper = createTestWrapper(client);
+  const result = render(ui, { wrapper: Wrapper });
 
-  return {
-    ...render(ui, { wrapper: Wrapper }),
-    queryClient: client,
-  };
+  return Object.assign(result, { queryClient: client });
 }

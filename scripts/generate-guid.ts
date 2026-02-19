@@ -16,6 +16,6 @@ console.log('');
 console.log('1. Set the environment variable:');
 console.log(`   export AIFORGE_AUTH_GUID="${guid}"`);
 console.log('');
-console.log('2. Or add to ~/.aiforge/config.json:');
+console.log('2. Or add to ~/.config/aiforge/config.json:');
 console.log(`   { "authGuid": "${guid}" }`);
 console.log('');

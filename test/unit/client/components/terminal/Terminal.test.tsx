@@ -7,22 +7,35 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Terminal } from '@client/components/terminal/Terminal';
-import type { SessionState, UseTerminalSessionReturn } from '@client/hooks/useTerminalSession';
-import type { Shell } from '@shared/types/index';
+import { Terminal } from '@client/components/terminal/Terminal.js';
+import type { SessionState, UseTerminalSessionReturn } from '@client/hooks/useTerminalSession.js';
+import type { Shell } from '@shared/types/index.js';
 
 // Mock xterm
 const mockXterm = {
   loadAddon: vi.fn(),
-  open: vi.fn(),
+  open: vi.fn().mockImplementation((el: HTMLElement) => {
+    // Simulate xterm.js creating its hidden helper textarea
+    if (!el.querySelector('.xterm-helper-textarea')) {
+      const textarea = document.createElement('textarea');
+      textarea.className = 'xterm-helper-textarea';
+      el.appendChild(textarea);
+    }
+  }),
   write: vi.fn(),
   clear: vi.fn(),
+  paste: vi.fn(),
   dispose: vi.fn(),
   focus: vi.fn(),
   scrollToBottom: vi.fn(),
   resize: vi.fn(),
   onData: vi.fn().mockReturnValue(vi.fn()),
   onResize: vi.fn().mockReturnValue(vi.fn()),
+  onSelectionChange: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+  attachCustomKeyEventHandler: vi.fn(),
+  getSelection: vi.fn().mockReturnValue(''),
+  clearSelection: vi.fn(),
+  hasSelection: vi.fn().mockReturnValue(false),
   cols: 80,
   rows: 24,
   options: {
@@ -66,6 +79,7 @@ function createMockShell(overrides: Partial<Shell> = {}): Shell {
     socketPath: '/tmp/shell.sock',
     lastActivityAt: new Date().toISOString(),
     done: false,
+    worktreePath: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -293,7 +307,7 @@ describe('Terminal Component', () => {
         vi.advanceTimersByTime(600);
 
         // Simulate terminal input via onData callback
-        const onDataHandler = mockXterm.onData.mock.calls[0][0] as (data: string) => void;
+        const onDataHandler = mockXterm.onData.mock.calls[0]?.[0] as (data: string) => void;
         onDataHandler('test input');
 
         expect(mockWrite).toHaveBeenCalledWith('test input');
@@ -316,7 +330,7 @@ describe('Terminal Component', () => {
       expect(XTerminal).toHaveBeenCalled();
 
       // Simulate terminal resize via onResize callback
-      const onResizeHandler = mockXterm.onResize.mock.calls[0][0] as (size: { cols: number; rows: number }) => void;
+      const onResizeHandler = mockXterm.onResize.mock.calls[0]?.[0] as (size: { cols: number; rows: number }) => void;
       onResizeHandler({ cols: 120, rows: 40 });
 
       expect(mockResize).toHaveBeenCalledWith(120, 40);
@@ -397,6 +411,319 @@ describe('Terminal Component', () => {
       renderTerminal();
 
       expect(screen.getByText('active')).toBeDefined();
+    });
+  });
+
+  describe('clipboard support', () => {
+    it('registers attachCustomKeyEventHandler for Ctrl/Cmd+C', async () => {
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      expect(mockXterm.attachCustomKeyEventHandler).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('registers an onSelectionChange handler for copy-on-select', async () => {
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      expect(mockXterm.onSelectionChange).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('copies to clipboard on selection change (Layer 2)', async () => {
+      // Mock the clipboard API
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      // Simulate a selection change
+      mockXterm.getSelection.mockReturnValue('hello world');
+      const selectionHandler = mockXterm.onSelectionChange.mock.calls[0]?.[0] as () => void;
+      selectionHandler();
+
+      expect(writeTextMock).toHaveBeenCalledWith('hello world');
+    });
+
+    it('Ctrl+C with selection copies instead of sending ^C (Layer 1)', async () => {
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      // Get the key handler
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Ctrl+C with a selection
+      mockXterm.getSelection.mockReturnValue('selected text');
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }));
+
+      // Should return false to prevent xterm from sending ^C
+      expect(result).toBe(false);
+      expect(writeTextMock).toHaveBeenCalledWith('selected text');
+      // Selection should be cleared so next Ctrl+C sends SIGINT
+      expect(mockXterm.clearSelection).toHaveBeenCalled();
+    });
+
+    it('Ctrl+C without selection passes through to xterm as ^C', async () => {
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Ctrl+C without selection
+      mockXterm.getSelection.mockReturnValue('');
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }));
+
+      // Should return true to let xterm send ^C
+      expect(result).toBe(true);
+    });
+
+    it('on macOS, Ctrl+C always sends SIGINT even with a selection', async () => {
+      // Simulate macOS user agent
+      const originalUserAgent = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        configurable: true,
+      });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Ctrl+C with a selection on macOS -- should pass through as SIGINT
+      mockXterm.getSelection.mockReturnValue('selected text');
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }));
+
+      expect(result).toBe(true);
+
+      // Restore original userAgent
+      Object.defineProperty(navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+    });
+
+    it('on macOS, Cmd+C with selection copies to clipboard', async () => {
+      // Mock the clipboard API
+      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      Object.assign(navigator, { clipboard: { writeText: writeTextMock } });
+
+      // Simulate macOS user agent
+      const originalUserAgent = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        configurable: true,
+      });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Cmd+C with a selection on macOS -- should copy
+      mockXterm.getSelection.mockReturnValue('selected text');
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'c', metaKey: true }));
+
+      expect(result).toBe(false);
+      expect(writeTextMock).toHaveBeenCalledWith('selected text');
+      expect(mockXterm.clearSelection).toHaveBeenCalled();
+
+      // Restore original userAgent
+      Object.defineProperty(navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+    });
+
+    it('Cmd+V on macOS reads clipboard and writes to terminal', async () => {
+      // Mock the clipboard API
+      const readTextMock = vi.fn().mockResolvedValue('pasted text');
+      Object.assign(navigator, { clipboard: { readText: readTextMock, writeText: vi.fn().mockResolvedValue(undefined) } });
+
+      // Simulate macOS user agent
+      const originalUserAgent = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        configurable: true,
+      });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Cmd+V on macOS
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'v', metaKey: true }));
+
+      // Should return false to prevent xterm default handling
+      expect(result).toBe(false);
+      expect(readTextMock).toHaveBeenCalled();
+
+      // Wait for the async clipboard read to complete
+      await vi.waitFor(() => {
+        expect(mockWrite).toHaveBeenCalledWith('pasted text');
+      });
+
+      // Restore original userAgent
+      Object.defineProperty(navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+    });
+
+    it('Ctrl+V on Windows/Linux reads clipboard and writes to terminal', async () => {
+      // Mock the clipboard API
+      const readTextMock = vi.fn().mockResolvedValue('pasted text');
+      Object.assign(navigator, { clipboard: { readText: readTextMock, writeText: vi.fn().mockResolvedValue(undefined) } });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Ctrl+V on Windows/Linux
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true }));
+
+      expect(result).toBe(false);
+      expect(readTextMock).toHaveBeenCalled();
+
+      await vi.waitFor(() => {
+        expect(mockWrite).toHaveBeenCalledWith('pasted text');
+      });
+    });
+
+    it('Ctrl+V on macOS does not paste (reserved for terminal control)', async () => {
+      // Mock the clipboard API
+      const readTextMock = vi.fn().mockResolvedValue('pasted text');
+      Object.assign(navigator, { clipboard: { readText: readTextMock, writeText: vi.fn().mockResolvedValue(undefined) } });
+
+      // Simulate macOS user agent
+      const originalUserAgent = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        configurable: true,
+      });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      const keyHandler = mockXterm.attachCustomKeyEventHandler.mock.calls[0]?.[0] as (ev: KeyboardEvent) => boolean;
+
+      // Simulate Ctrl+V on macOS -- should pass through to xterm (not paste)
+      const result = keyHandler(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true }));
+
+      // Should return true to let xterm handle it normally
+      expect(result).toBe(true);
+      expect(readTextMock).not.toHaveBeenCalled();
+
+      // Restore original userAgent
+      Object.defineProperty(navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+    });
+
+    it('disposes the onSelectionChange listener on unmount', async () => {
+      const mockDispose = vi.fn();
+      mockXterm.onSelectionChange.mockReturnValue({ dispose: mockDispose });
+
+      setMockSessionState({
+        status: 'open',
+        shell: createMockShell(),
+        scrollback: '',
+      });
+
+      const { unmount } = renderTerminal();
+
+      const { Terminal: XTerminal } = await import('@xterm/xterm');
+      expect(XTerminal).toHaveBeenCalled();
+
+      unmount();
+
+      expect(mockDispose).toHaveBeenCalled();
     });
   });
 

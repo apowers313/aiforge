@@ -20,11 +20,6 @@ export class ShellService {
   private readonly lastActivityTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly lastActivityDebounceMs = 1000; // Debounce lastActivityAt updates by 1 second
 
-  // Track last input time per shell for input-aware activity tracking
-  // Output only counts as activity if there was recent input (within this window)
-  private readonly lastInputTimes = new Map<string, number>();
-  private readonly inputActivityWindowMs = 30000; // 30 seconds - output after input counts as activity
-
   constructor(options: ShellServiceOptions) {
     this.shellStore = options.shellStore;
     this.projectStore = options.projectStore;
@@ -40,28 +35,16 @@ export class ShellService {
         });
       });
 
-      // Track lastActivityAt for AI shells with input-aware logic:
-      // - Input always counts as activity
-      // - Output only counts if there was recent input (within 30s)
-      // This prevents prompt refresh after reconnection from counting as activity
       this.ptyPool.on('session:input', (shellId: string) => {
-        this.lastInputTimes.set(shellId, Date.now());
         this._handleSessionActivity(shellId).catch((err: unknown) => {
-          // Log but don't crash on storage errors
           console.error(`[ShellService] Failed to handle session activity for ${shellId}:`, err);
         });
       });
 
       this.ptyPool.on('session:output', (shellId: string) => {
-        // Only count output as activity if there was recent input
-        const lastInputTime = this.lastInputTimes.get(shellId);
-        if (lastInputTime && Date.now() - lastInputTime < this.inputActivityWindowMs) {
-          this._handleSessionActivity(shellId).catch((err: unknown) => {
-            // Log but don't crash on storage errors
-            console.error(`[ShellService] Failed to handle session activity for ${shellId}:`, err);
-          });
-        }
-        // Otherwise, output is ignored (likely prompt refresh or other housekeeping)
+        this._handleSessionActivity(shellId).catch((err: unknown) => {
+          console.error(`[ShellService] Failed to handle session activity for ${shellId}:`, err);
+        });
       });
     }
   }

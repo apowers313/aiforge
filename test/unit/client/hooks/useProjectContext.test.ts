@@ -3,8 +3,8 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useProjectContext } from '@client/hooks/useProjectContext';
-import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient';
+import { useProjectContext } from '@client/hooks/useProjectContext.js';
+import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally

@@ -87,7 +87,7 @@ describe('PtyManager', () => {
     manager.spawn('shell-1', { cwd: '/tmp' });
 
     expect(factoryCalls).toHaveLength(1);
-    expect(factoryCalls[0].file).toMatch(/bash|sh|zsh/);
+    expect(factoryCalls[0]?.file).toMatch(/bash|sh|zsh/);
   });
 
   it('passes environment to PTY factory', () => {

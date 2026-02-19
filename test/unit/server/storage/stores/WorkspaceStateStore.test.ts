@@ -23,8 +23,13 @@ describe('WorkspaceStateStore', () => {
 
   const createState = (overrides?: Partial<WorkspaceState>): WorkspaceState => ({
     sidebarCollapsed: false,
+    sidebarWidth: 280,
     expandedProjectIds: [],
     activeShellId: null,
+    terminalFontSize: 14,
+    terminalTheme: 'tokyo-night',
+    contextSidebarPinned: false,
+    contextSidebarWidth: 320,
     updatedAt: new Date().toISOString(),
     ...overrides,
   });

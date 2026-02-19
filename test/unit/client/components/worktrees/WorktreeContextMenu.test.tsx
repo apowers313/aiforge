@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { WorktreeContextMenu } from '@client/components/worktrees/WorktreeContextMenu';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
-import type { WorktreeWithStatus } from '@shared/types';
+import { userEvent } from '@testing-library/user-event';
+import { WorktreeContextMenu } from '@client/components/worktrees/WorktreeContextMenu.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
+import type { WorktreeWithStatus } from '@shared/types/index.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 const mockWorktree: WorktreeWithStatus = {

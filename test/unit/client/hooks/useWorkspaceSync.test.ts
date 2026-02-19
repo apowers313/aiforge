@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useWorkspaceSync } from '@client/hooks/useWorkspaceSync';
-import { useUIStore } from '@client/stores/uiStore';
-import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient';
+import { useWorkspaceSync } from '@client/hooks/useWorkspaceSync.js';
+import { useUIStore } from '@client/stores/uiStore.js';
+import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally

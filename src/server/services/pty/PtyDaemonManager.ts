@@ -6,13 +6,15 @@
  */
 import { EventEmitter } from 'events';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { access, constants, unlink, readdir } from 'node:fs/promises';
+import { access, constants, unlink, readdir, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PtyDaemonClient } from './PtyDaemonClient.js';
 import { type DaemonConfig, getSocketPath } from './daemon/protocol.js';
 import type { ScrollbackStore } from '../../storage/stores/ScrollbackStore.js';
+import { sanitizePathForShell } from './envUtils.js';
+import { getSocketDir, getDataDir } from '../../paths.js';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -153,6 +155,12 @@ export class PtyDaemonManager extends EventEmitter {
     // Socket does not exist - safe to spawn a new daemon
     logger.info({ shellId }, '[DAEMON_SPAWN] No existing socket, spawning new daemon');
 
+    // Ensure socket directory exists before spawning daemon
+    const socketsDir = getSocketDir();
+    if (!existsSync(socketsDir)) {
+      await mkdir(socketsDir, { recursive: true });
+    }
+
     const shell = options.shell ?? this._defaultShell;
     const cols = options.cols ?? 80;
     const rows = options.rows ?? 24;
@@ -164,7 +172,7 @@ export class PtyDaemonManager extends EventEmitter {
       shell,
       cols,
       rows,
-      scrollbackDir: this._scrollbackStore?.directory ?? '/tmp/ai-ide-scrollback',
+      scrollbackDir: this._scrollbackStore?.directory ?? join(getDataDir(), 'scrollback'),
     };
     if (this._remoteLoggerUrl) {
       config.remoteLoggerUrl = this._remoteLoggerUrl;
@@ -187,6 +195,7 @@ export class PtyDaemonManager extends EventEmitter {
     const daemonEnv: Record<string, string | undefined> = {
       ...process.env,
       ...options.env,
+      PATH: sanitizePathForShell(process.env.PATH),
     };
     if (this._remoteLoggerUrl?.startsWith('https://')) {
       // Allow self-signed certificates for remote logger connection
@@ -438,20 +447,20 @@ export class PtyDaemonManager extends EventEmitter {
   async findOrphanedSockets(validShellIds: string[]): Promise<string[]> {
     const orphans: string[] = [];
     const validSet = new Set(validShellIds);
+    const socketsDir = getSocketDir();
 
     try {
-      const tmpFiles = await readdir('/tmp');
-      for (const file of tmpFiles) {
-        if (file.startsWith('ai-ide-pty-') && file.endsWith('.sock')) {
-          // Extract shellId from filename
-          const shellId = file.replace('ai-ide-pty-', '').replace('.sock', '');
+      const files = await readdir(socketsDir);
+      for (const file of files) {
+        if (file.endsWith('.sock')) {
+          const shellId = file.replace('.sock', '');
           if (!validSet.has(shellId)) {
-            orphans.push(join('/tmp', file));
+            orphans.push(join(socketsDir, file));
           }
         }
       }
     } catch {
-      // Can't read /tmp, return empty list
+      // Socket dir doesn't exist or can't be read
     }
 
     return orphans;

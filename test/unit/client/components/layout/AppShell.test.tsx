@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { AppShellLayout } from '@client/components/layout/AppShell';
-import { useUIStore } from '@client/stores/uiStore';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
+import { userEvent } from '@testing-library/user-event';
+import { AppShellLayout } from '@client/components/layout/AppShell.js';
+import { useUIStore } from '@client/stores/uiStore.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@client/hooks/queryKeys';
+import { queryKeys } from '@client/hooks/queryKeys.js';
 
 // Mock useTerminalSession to prevent WebSocket connection attempts in tests
 // Use vi.hoisted to ensure state is available before vi.mock is hoisted

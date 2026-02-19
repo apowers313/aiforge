@@ -6,6 +6,7 @@ import { spawn as nodePtySpawn } from '@homebridge/node-pty-prebuilt-multiarch';
 import type { IPty, IPtyForkOptions } from '@homebridge/node-pty-prebuilt-multiarch';
 import { PtySession } from './PtySession.js';
 import type { ScrollbackStore } from '../../storage/stores/ScrollbackStore.js';
+import { sanitizePathForShell } from './envUtils.js';
 
 /**
  * Type for PTY factory function
@@ -65,6 +66,7 @@ export class PtyManager extends EventEmitter {
       env: {
         ...process.env,
         ...options.env,
+        PATH: sanitizePathForShell(process.env.PATH),
       } as Record<string, string>,
     };
 

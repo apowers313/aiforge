@@ -102,8 +102,8 @@ export function AddProjectModal({ opened, onClose, onSelect }: AddProjectModalPr
   const handleSelect = (): void => {
     uiLog.info({ path: currentPath }, 'AddProjectModal: directory selected');
     onSelect(currentPath);
-    setCurrentPath('');
-    setHomePath('');
+    // Don't reset state here - the modal is still open while the async mutation runs.
+    // State cleanup happens in handleClose() when the modal actually closes.
   };
 
   const handleClose = (): void => {

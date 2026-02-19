@@ -83,7 +83,7 @@ test/
 
 **State Management**:
 - Frontend: Zustand stores with shallow equality
-- Backend: JSON file-based persistence in `~/.aiforge/data/`
+- Backend: JSON file-based persistence in `~/.local/share/aiforge/`
 
 **PTY Management**:
 - Daemon mode: shells survive server restarts (uses Unix domain sockets)
@@ -106,7 +106,9 @@ AIFORGE_HOST              # Server host (default: 0.0.0.0)
 AIFORGE_AUTH_GUID         # Authentication GUID (empty = no auth)
 AIFORGE_SCROLLBACK_LINES  # Terminal scrollback size (default: 10000)
 AIFORGE_LOG_LEVEL         # trace/debug/info/warn/error/fatal (default: info)
-AIFORGE_DATA_DIR          # Data directory (default: ~/.aiforge)
+AIFORGE_DATA_DIR          # Data directory override (default: $XDG_DATA_HOME/aiforge or ~/.local/share/aiforge)
+XDG_CONFIG_HOME           # XDG config base (default: ~/.config); AIForge uses $XDG_CONFIG_HOME/aiforge/
+XDG_DATA_HOME             # XDG data base (default: ~/.local/share); AIForge uses $XDG_DATA_HOME/aiforge/
 E2E_TEST                  # Flag for E2E test mode
 ```
 
@@ -116,7 +118,7 @@ AIForge uses a GUID-based authentication system. The auth GUID can be configured
 
 **Configuration Sources (in priority order)**:
 1. Environment variable: `AIFORGE_AUTH_GUID`
-2. Config file: `~/.aiforge/config.json` (`authGuid` field)
+2. Config file: `~/.config/aiforge/config.json` (`authGuid` field)
 3. Empty = no authentication required
 
 **Important**: Servers cache the auth GUID at startup. If you change `config.json` while a server is running, the server still uses the old GUID until restarted.
@@ -159,7 +161,7 @@ Use for **application data** that has intrinsic value tied to domain entities:
 - Data has value beyond the current browser session
 - **Examples**: TODOs, notes, custom URLs, bookmarks, tags, shell metadata
 
-**Implementation**: Create API endpoints in `src/server/api/routes/` with corresponding services in `src/server/services/`. Data persists in `~/.aiforge/data/` via JSON stores.
+**Implementation**: Create API endpoints in `src/server/api/routes/` with corresponding services in `src/server/services/`. Data persists in `~/.local/share/aiforge/` via JSON stores.
 
 ### Zustand + WorkspaceState (Client-side)
 

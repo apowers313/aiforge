@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { MockTerminal } from '@client/components/terminal/MockTerminal';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
+import { userEvent } from '@testing-library/user-event';
+import { MockTerminal } from '@client/components/terminal/MockTerminal.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
-import type { Shell } from '@shared/types';
+import type { Shell } from '@shared/types/index.js';
 
 const mockShell: Shell = {
   id: 'shell-1',
@@ -12,7 +12,12 @@ const mockShell: Shell = {
   name: 'test-shell',
   cwd: '/project',
   status: 'active',
+  type: 'bash',
   pid: 1234,
+  socketPath: null,
+  lastActivityAt: null,
+  done: false,
+  worktreePath: null,
   createdAt: '',
   updatedAt: '',
 };

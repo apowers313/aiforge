@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { userEvent } from '@testing-library/user-event';
 import { MantineProvider } from '@mantine/core';
-import { AddProjectModal } from '@client/components/projects/AddProjectModal';
+import { AddProjectModal } from '@client/components/projects/AddProjectModal.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -261,6 +261,57 @@ describe('AddProjectModal with API', () => {
     await user.click(screen.getByTestId('cancel-button'));
 
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not reset path while modal is still open after selecting directory', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    // First call: getHomeDirectory
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ path: '/home/testuser' }),
+    });
+    // Second call: browseDirectory for /home/testuser
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        path: '/home/testuser',
+        parent: '/home',
+        entries: [{ name: 'myproject', path: '/home/testuser/myproject', isDirectory: true }],
+      }),
+    });
+
+    renderWithProviders(
+      <AddProjectModal opened={true} onClose={vi.fn()} onSelect={onSelect} />,
+    );
+
+    // Navigate into myproject
+    await waitFor(() => screen.getByText('myproject'));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        path: '/home/testuser/myproject',
+        parent: '/home/testuser',
+        entries: [],
+      }),
+    });
+    await user.click(screen.getByText('myproject'));
+    await waitFor(() => {
+      expect(screen.getByTestId('current-path')).toHaveTextContent('/home/testuser/myproject');
+    });
+
+    // Click "Select This Directory" - the modal is still open (onSelect is async in real usage)
+    await user.click(screen.getByTestId('select-directory-button'));
+    expect(onSelect).toHaveBeenCalledWith('/home/testuser/myproject');
+
+    // The path should NOT have been reset while the modal is still open
+    // This is a regression test for the double-dialog bug where handleSelect()
+    // would reset state before the modal closed, causing a flash of empty state
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/home/testuser/myproject');
   });
 
   it('does not render when closed', () => {

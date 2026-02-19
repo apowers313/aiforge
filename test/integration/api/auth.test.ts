@@ -28,7 +28,7 @@ describe('Auth API', () => {
         .expect(200);
 
       expect(response.headers['set-cookie']).toBeDefined();
-      const setCookie = response.headers['set-cookie'] as string[];
+      const setCookie = response.headers['set-cookie'] as unknown as string[];
       expect(setCookie[0]).toContain('session=');
     });
 
@@ -75,7 +75,7 @@ describe('Auth API', () => {
         .post('/api/auth/login')
         .send({ guid: 'test-guid' });
 
-      const setCookie = loginResponse.headers['set-cookie'] as string[];
+      const setCookie = loginResponse.headers['set-cookie'] as unknown as string[];
       const freshCookie = setCookie[0]?.split(';')[0] ?? '';
 
       const response = await request(server.app)
@@ -84,7 +84,7 @@ describe('Auth API', () => {
         .expect(200);
 
       // Check that the cookie is cleared (expires in the past)
-      const logoutCookie = response.headers['set-cookie'] as string[];
+      const logoutCookie = response.headers['set-cookie'] as unknown as string[];
       expect(logoutCookie[0]).toMatch(/session=;|Expires=Thu, 01 Jan 1970/);
     });
   });

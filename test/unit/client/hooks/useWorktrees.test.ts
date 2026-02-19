@@ -8,8 +8,8 @@ import {
   useUpdateWorktreeMetadata,
   useWorktreeStatus,
   useShellsByWorktree,
-} from '@client/hooks/useWorktrees';
-import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient';
+} from '@client/hooks/useWorktrees.js';
+import { createTestWrapper, createTestQueryClient } from '../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally

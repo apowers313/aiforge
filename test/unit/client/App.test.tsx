@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
-import { App } from '@client/App';
-import { useUIStore } from '@client/stores/uiStore';
+import { App } from '@client/App.js';
+import { useUIStore } from '@client/stores/uiStore.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();

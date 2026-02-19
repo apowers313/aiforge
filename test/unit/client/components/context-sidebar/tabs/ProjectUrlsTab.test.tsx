@@ -3,9 +3,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { ProjectUrlsTab } from '@client/components/context-sidebar/tabs/ProjectUrlsTab';
-import { renderWithProviders, createTestQueryClient } from '../../../../../utils/testQueryClient';
+import { userEvent } from '@testing-library/user-event';
+import { ProjectUrlsTab } from '@client/components/context-sidebar/tabs/ProjectUrlsTab.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../../utils/testQueryClient.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 // Mock fetch globally

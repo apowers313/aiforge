@@ -1,7 +1,7 @@
 /**
  * WebSocketServer unit tests
  */
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { createWebSocketServer, TerminalWebSocketServer } from '@server/websocket/WebSocketServer.js';
 
@@ -11,10 +11,18 @@ class MockWebSocketServer extends EventEmitter {
   close = vi.fn();
 }
 
-interface MockedWebSocketServerConstructor extends Mock {
-  mock: {
-    results: { value: MockWebSocketServer }[];
-  };
+function getMockWssInstance(wsCtor: unknown, index = 0): MockWebSocketServer {
+  const mock = (wsCtor as { mock: { results: { value: MockWebSocketServer }[] } }).mock;
+  const result = mock.results[index];
+  if (!result) throw new Error('Expected mock result at index ' + String(index));
+  return result.value;
+}
+
+function getLatestMockWssInstance(wsCtor: unknown): MockWebSocketServer {
+  const mock = (wsCtor as { mock: { results: { value: MockWebSocketServer }[] } }).mock;
+  const result = mock.results[mock.results.length - 1];
+  if (!result) throw new Error('Expected at least one mock result');
+  return result.value;
 }
 
 vi.mock('ws', () => ({
@@ -123,7 +131,7 @@ describe('createWebSocketServer', () => {
     });
 
     // Get the actual MockWebSocketServer instance
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
 
     // Create mock client
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
@@ -142,7 +150,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();
 
@@ -162,7 +170,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();
 
@@ -183,7 +191,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();
 
@@ -200,7 +208,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();
 
@@ -220,7 +228,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();
 
@@ -237,7 +245,7 @@ describe('createWebSocketServer', () => {
       sessionManager: mockSessionManager as unknown as Parameters<typeof createWebSocketServer>[0]['sessionManager'],
     });
 
-    const mockWss = (WebSocketServer as MockedWebSocketServerConstructor).mock.results[0].value;
+    const mockWss = getMockWssInstance(WebSocketServer);
     mockWss.emit('close');
 
     expect(mockHeartbeatStop).toHaveBeenCalled();
@@ -292,8 +300,7 @@ describe('TerminalWebSocketServer', () => {
     });
 
     // Get the actual MockWebSocketServer instance (from latest call)
-    const calls = (WebSocketServer as MockedWebSocketServerConstructor).mock.results;
-    const mockWss = calls[calls.length - 1].value;
+    const mockWss = getLatestMockWssInstance(WebSocketServer);
 
     const mockClient = new EventEmitter() as EventEmitter & { isAlive: boolean; send: ReturnType<typeof vi.fn> };
     mockClient.send = vi.fn();

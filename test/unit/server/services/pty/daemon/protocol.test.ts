@@ -1,7 +1,7 @@
 /**
  * Tests for PTY daemon IPC protocol
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   getSocketPath,
   encodeMessage,
@@ -12,17 +12,31 @@ import {
 } from '@server/services/pty/daemon/protocol.js';
 
 describe('PTY Daemon Protocol', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env.AIFORGE_DATA_DIR = '/test/data';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
   describe('getSocketPath', () => {
-    it('returns socket path with shell ID', () => {
-      const shellId = 'abc-123';
-      const path = getSocketPath(shellId);
-      expect(path).toBe('/tmp/ai-ide-pty-abc-123.sock');
+    it('returns socket path under data dir sockets/', () => {
+      const path = getSocketPath('abc-123');
+      expect(path).toBe('/test/data/sockets/abc-123.sock');
+    });
+
+    it('does not include ai-ide-pty- prefix', () => {
+      const path = getSocketPath('shell-id');
+      expect(path).not.toContain('ai-ide-pty-');
     });
 
     it('handles UUID-style shell IDs', () => {
       const shellId = '550e8400-e29b-41d4-a716-446655440000';
       const path = getSocketPath(shellId);
-      expect(path).toBe('/tmp/ai-ide-pty-550e8400-e29b-41d4-a716-446655440000.sock');
+      expect(path).toBe('/test/data/sockets/550e8400-e29b-41d4-a716-446655440000.sock');
     });
   });
 

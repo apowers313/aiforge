@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
-import { ConfirmDialog } from '@client/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@client/components/common/ConfirmDialog.js';
 
 const renderWithProviders = (ui: React.ReactElement): ReturnType<typeof render> => {
   return render(<MantineProvider>{ui}</MantineProvider>);

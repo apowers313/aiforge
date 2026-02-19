@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { ProjectContextMenu } from '@client/components/projects/ProjectContextMenu';
-import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient';
-import type { Project } from '@shared/types';
+import { userEvent } from '@testing-library/user-event';
+import { ProjectContextMenu } from '@client/components/projects/ProjectContextMenu.js';
+import { renderWithProviders, createTestQueryClient } from '../../../../utils/testQueryClient.js';
+import type { Project } from '@shared/types/index.js';
 import type { QueryClient } from '@tanstack/react-query';
 
 const mockProject: Project = {

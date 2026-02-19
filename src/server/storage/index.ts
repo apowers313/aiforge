@@ -2,9 +2,9 @@
  * Storage initialization and exports
  */
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { getDataDir as resolveDataDir, getSocketDir } from '../paths.js';
 import { ProjectStore } from './stores/ProjectStore.js';
 import { ShellStore } from './stores/ShellStore.js';
 import { SessionStore } from './stores/SessionStore.js';
@@ -40,10 +40,10 @@ export interface Storage {
 
 /**
  * Get the data directory path
- * Configurable via AIFORGE_DATA_DIR environment variable for test isolation
+ * Priority: AIFORGE_DATA_DIR > XDG_DATA_HOME/aiforge > ~/.local/share/aiforge
  */
 export function getDataDir(): string {
-  return process.env.AIFORGE_DATA_DIR ?? join(homedir(), '.aiforge', 'data');
+  return resolveDataDir();
 }
 
 /**
@@ -55,6 +55,12 @@ export async function initStorage(): Promise<Storage> {
   // Ensure data directory exists
   if (!existsSync(dataDir)) {
     await mkdir(dataDir, { recursive: true });
+  }
+
+  // Ensure sockets directory exists
+  const socketsDir = getSocketDir();
+  if (!existsSync(socketsDir)) {
+    await mkdir(socketsDir, { recursive: true });
   }
 
   return {

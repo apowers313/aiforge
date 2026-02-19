@@ -121,13 +121,10 @@ test.describe.serial('Context Sidebar', () => {
     // Verify context sidebar appears with shell context
     await expect(page.locator('[data-testid="context-sidebar"]')).toBeVisible();
 
-    // Verify it shows TODOs tab (default for shell)
-    // Mantine v8 SegmentedControl uses radiogroup with hidden radio inputs
-    await expect(page.getByRole('radio', { name: 'TODOs' })).toBeChecked();
-
-    // Switch to Notes tab - clicking the label works since radio is hidden
-    await page.getByText('Notes', { exact: true }).click();
-    await expect(page.getByRole('radio', { name: 'Notes' })).toBeChecked();
+    // Shells no longer have tabs - they show an informational message
+    // directing users to click on the project for TODOs and Notes
+    await expect(page.getByText('TODOs and Notes are now managed at the project level.')).toBeVisible();
+    await expect(page.getByText('Click on a project name to access TODOs and Notes.')).toBeVisible();
   });
 
   test('sidebar close button works', async ({ page }) => {

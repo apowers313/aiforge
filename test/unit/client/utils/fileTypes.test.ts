@@ -2,7 +2,7 @@
  * Tests for fileTypes utility functions
  */
 import { describe, it, expect } from 'vitest';
-import { detectFileType, getFileIcon, isImage, isMarkdown } from '@client/utils/fileTypes';
+import { detectFileType, getFileIcon, isImage, isMarkdown } from '@client/utils/fileTypes.js';
 
 describe('fileTypes', () => {
   describe('detectFileType', () => {

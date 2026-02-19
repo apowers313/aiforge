@@ -3,9 +3,8 @@
  * Loads configuration from environment variables, config file, and defaults
  */
 import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import type { ServerConfig } from '../../shared/types/index.js';
+import { getConfigPath } from '../paths.js';
 
 interface ConfigFile {
   port?: number;
@@ -22,7 +21,7 @@ interface ConfigFile {
  * Get the path to the config file
  */
 function getConfigFilePath(): string {
-  return path.join(os.homedir(), '.aiforge', 'config.json');
+  return getConfigPath();
 }
 
 /**

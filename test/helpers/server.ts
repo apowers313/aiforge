@@ -139,6 +139,7 @@ export async function createTestServer(options: TestServerOptions = {}): Promise
     fileTreeService,
     workspaceStateService,
     worktreeMetadataStore: storage.worktreeMetadata,
+    worktreeUrlsStore: storage.worktreeUrls,
   }));
 
   // Error handling

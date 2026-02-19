@@ -31,9 +31,7 @@ describe('WorktreeService', () => {
 
   beforeEach(async () => {
     // Create a fresh sandbox for each test
-    sandbox = (await import('@test/helpers/git-sandbox.js')).default
-      ? new (await import('@test/helpers/git-sandbox.js')).GitTestSandbox()
-      : new (await import('@test/helpers/git-sandbox.js')).GitTestSandbox();
+    sandbox = new (await import('@test/helpers/git-sandbox.js')).GitTestSandbox();
 
     await sandbox.setup();
 
@@ -69,7 +67,7 @@ describe('WorktreeService', () => {
     // Create service with mock project store
     const mockStore = createMockProjectStore(projects);
     projectService = new WorktreeService({
-      projectStore: mockStore as unknown as Parameters<typeof WorktreeService.prototype.constructor>[0]['projectStore'],
+      projectStore: mockStore as unknown as ConstructorParameters<typeof WorktreeService>[0]['projectStore'],
     });
   });
 
@@ -115,7 +113,7 @@ describe('WorktreeService', () => {
       // Here we just verify that the main worktree is returned
       const worktrees = await projectService.getWorktrees(gitProjectId);
       expect(worktrees.length).toBeGreaterThanOrEqual(1);
-      expect(worktrees[0].isMain).toBe(true);
+      expect(worktrees[0]?.isMain).toBe(true);
     });
 
     it('should return empty array for non-git project', async () => {
@@ -130,7 +128,7 @@ describe('WorktreeService', () => {
 
     it('should set name from branch for main worktree', async () => {
       const worktrees = await projectService.getWorktrees(gitProjectId);
-      expect(worktrees[0].name).toBe('main');
+      expect(worktrees[0]?.name).toBe('main');
     });
   });
 
@@ -233,7 +231,7 @@ describe('WorktreeService', () => {
       // Verify it's gone
       const worktrees = await projectService.getWorktrees(gitProjectId);
       expect(worktrees).toHaveLength(1);
-      expect(worktrees[0].isMain).toBe(true);
+      expect(worktrees[0]?.isMain).toBe(true);
     });
 
     it('should force delete dirty worktree', async () => {
@@ -295,7 +293,7 @@ describe('WorktreeService with multiple worktrees', () => {
 
       const mockStore = createMockProjectStore(projects);
       const service = new WorktreeService({
-        projectStore: mockStore as unknown as Parameters<typeof WorktreeService.prototype.constructor>[0]['projectStore'],
+        projectStore: mockStore as unknown as ConstructorParameters<typeof WorktreeService>[0]['projectStore'],
       });
 
       const worktrees = await service.getWorktrees(projectId);

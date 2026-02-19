@@ -2,7 +2,7 @@
  * Test isolation utilities
  * Creates ephemeral temp directories for isolated test environments
  */
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,9 @@ export function setupTestIsolation(): string {
 
   testDataDir = mkdtempSync(join(tmpdir(), 'aiforge-test-'));
   process.env.AIFORGE_DATA_DIR = testDataDir;
+
+  // Create sockets subdirectory for Unix domain socket tests
+  mkdirSync(join(testDataDir, 'sockets'), { recursive: true });
 
   return testDataDir;
 }

@@ -3,13 +3,14 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, type Socket } from 'node:net';
-import { unlink } from 'node:fs/promises';
+import { unlink, mkdir } from 'node:fs/promises';
 import { PtyDaemonClient } from '@server/services/pty/PtyDaemonClient.js';
 import { getSocketPath, encodeMessage } from '@server/services/pty/daemon/protocol.js';
+import { getSocketDir } from '@server/paths.js';
 
 describe('PtyDaemonClient', () => {
   const testShellId = 'test-shell-123';
-  const testSocketPath = getSocketPath(testShellId);
+  let testSocketPath: string;
   let mockServer: Server | null = null;
   let serverConnections: Socket[] = [];
 
@@ -29,6 +30,9 @@ describe('PtyDaemonClient', () => {
   };
 
   beforeEach(async () => {
+    // Ensure sockets directory exists
+    await mkdir(getSocketDir(), { recursive: true });
+    testSocketPath = getSocketPath(testShellId);
     serverConnections = [];
     // Clean up socket file if it exists
     try {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
-import { ConnectionStatus } from '@client/components/common/ConnectionStatus';
+import { ConnectionStatus } from '@client/components/common/ConnectionStatus.js';
 
 const renderWithProviders = (ui: React.ReactElement): ReturnType<typeof render> => {
   return render(<MantineProvider>{ui}</MantineProvider>);

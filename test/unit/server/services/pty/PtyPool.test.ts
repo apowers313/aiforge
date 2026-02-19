@@ -56,7 +56,12 @@ describe('PtyPool', () => {
       name: 'Shell 1',
       cwd: '/tmp',
       pid: 99999, // Non-existent PID
+      socketPath: null,
       status: 'active',
+      type: 'bash',
+      lastActivityAt: null,
+      done: false,
+      worktreePath: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }];
@@ -77,7 +82,12 @@ describe('PtyPool', () => {
       name: 'Shell 1',
       cwd: '/tmp',
       pid: process.pid, // Current process PID (exists)
+      socketPath: null,
       status: 'active',
+      type: 'bash',
+      lastActivityAt: null,
+      done: false,
+      worktreePath: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }];
@@ -149,7 +159,12 @@ describe('PtyPool', () => {
       name: 'Shell 1',
       cwd: '/tmp',
       pid: null,
+      socketPath: null,
       status: 'active',
+      type: 'bash',
+      lastActivityAt: null,
+      done: false,
+      worktreePath: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }];
@@ -327,6 +342,7 @@ describe('PtyPool (Daemon Mode)', () => {
         type: 'bash',
         lastActivityAt: null,
         done: false,
+        worktreePath: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }];
@@ -353,6 +369,7 @@ describe('PtyPool (Daemon Mode)', () => {
         type: 'bash',
         lastActivityAt: null,
         done: false,
+        worktreePath: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }];
@@ -425,6 +442,7 @@ describe('PtyPool (Daemon Mode)', () => {
         type: 'bash',
         lastActivityAt: null,
         done: false,
+        worktreePath: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }];
@@ -449,6 +467,7 @@ describe('PtyPool (Daemon Mode)', () => {
         type: 'bash',
         lastActivityAt: null,
         done: false,
+        worktreePath: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }];
@@ -476,6 +495,7 @@ describe('PtyPool (Daemon Mode)', () => {
         type: 'bash',
         lastActivityAt: null,
         done: false,
+        worktreePath: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }];

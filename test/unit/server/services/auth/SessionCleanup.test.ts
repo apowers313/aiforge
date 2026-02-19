@@ -5,9 +5,13 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 import { SessionCleanup } from '@server/services/auth/SessionCleanup.js';
 import type { SessionStore, StoredSession } from '@server/storage/stores/SessionStore.js';
 
-interface MockSessionStore extends SessionStore {
+interface MockSessionStore {
   sessions: StoredSession[];
   deleteExpiredMock: Mock;
+  create: Mock;
+  findByToken: Mock;
+  delete: Mock;
+  deleteExpired: Mock;
 }
 
 // Create a mock session store
@@ -49,7 +53,7 @@ describe('SessionCleanup', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockSessionStore = createMockSessionStore();
-    cleanup = new SessionCleanup(mockSessionStore, 60000);
+    cleanup = new SessionCleanup(mockSessionStore as unknown as SessionStore, 60000);
   });
 
   afterEach(() => {

@@ -96,7 +96,7 @@ describe('GitService', () => {
           isMain: true,
           isLocked: false,
         });
-        expect(worktrees[0].commit).toMatch(/^[0-9a-f]{40}$/);
+        expect(worktrees[0]?.commit).toMatch(/^[0-9a-f]{40}$/);
       });
     });
 
@@ -582,7 +582,7 @@ describe('GitService', () => {
         // Verify worktree was removed
         const worktrees = await gitService.listWorktrees();
         expect(worktrees).toHaveLength(1);
-        expect(worktrees[0].isMain).toBe(true);
+        expect(worktrees[0]?.isMain).toBe(true);
 
         // Verify the directory was removed
         const { stat } = await import('node:fs/promises');

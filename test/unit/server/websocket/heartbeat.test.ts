@@ -13,7 +13,7 @@ describe('WebSocket Heartbeat', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     wss = createMockWebSocketServer();
-    heartbeatManager = new HeartbeatManager(wss as unknown as Parameters<typeof HeartbeatManager.prototype.start>[0], {
+    heartbeatManager = new HeartbeatManager(wss as unknown as ConstructorParameters<typeof HeartbeatManager>[0], {
       interval: 30000,
       timeout: 10000,
     });

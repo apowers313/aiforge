@@ -12,6 +12,8 @@ import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { getConfig } from './config/index.js';
+import { getDataDir, getSocketPath, validateSocketPathLength } from './paths.js';
+import { migrateFromLegacyPaths, migrateProjectIdsToV5 } from './migration.js';
 import { logger } from './utils/logger.js';
 import { initStorage, type Storage } from './storage/index.js';
 import { AuthService } from './services/auth/AuthService.js';
@@ -46,7 +48,17 @@ interface AppResult {
 }
 
 export async function createApp(): Promise<AppResult> {
+  // Migrate legacy paths before loading config so the config file is found
+  await migrateFromLegacyPaths();
+
   const config = getConfig();
+
+  // Migrate project IDs to deterministic UUIDv5 (idempotent)
+  await migrateProjectIdsToV5(getDataDir());
+
+  // Validate socket path length with a sample UUID to fail fast if paths are too long
+  const samplePath = getSocketPath('00000000-0000-0000-0000-000000000000');
+  validateSocketPathLength(samplePath);
 
   // Initialize storage
   const storage = await initStorage();

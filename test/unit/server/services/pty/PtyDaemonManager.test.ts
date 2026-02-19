@@ -4,8 +4,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer, type Server, type Socket } from 'node:net';
 import { writeFile, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { PtyDaemonManager } from '@server/services/pty/PtyDaemonManager.js';
 import { getSocketPath, encodeMessage } from '@server/services/pty/daemon/protocol.js';
+import { getSocketDir } from '@server/paths.js';
 
 describe('PtyDaemonManager', () => {
   describe('constructor', () => {
@@ -257,12 +259,56 @@ describe('PtyDaemonManager', () => {
   });
 
   describe('findOrphanedSockets', () => {
+    const cleanSocketsDir = async (): Promise<void> => {
+      const socketsDir = getSocketDir();
+      try {
+        const { readdir } = await import('node:fs/promises');
+        const files = await readdir(socketsDir);
+        for (const file of files) {
+          if (file.endsWith('.sock') || file.endsWith('.txt')) {
+            try { await unlink(join(socketsDir, file)); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    };
+
+    beforeEach(async () => {
+      await cleanSocketsDir();
+    });
+
+    afterEach(async () => {
+      await cleanSocketsDir();
+    });
+
+    it('scans the sockets directory, not /tmp directly', async () => {
+      const socketsDir = getSocketDir();
+      await writeFile(join(socketsDir, 'valid-id.sock'), '');
+      await writeFile(join(socketsDir, 'orphan-id.sock'), '');
+
+      const manager = new PtyDaemonManager();
+      const orphans = await manager.findOrphanedSockets(['valid-id']);
+      expect(orphans).toHaveLength(1);
+      expect(orphans[0]).toContain('orphan-id.sock');
+      // Verify path is under the sockets dir (not a bare /tmp/ai-ide-pty-* path)
+      expect(orphans[0]).toContain('/sockets/');
+      expect(orphans[0]).not.toContain('ai-ide-pty-');
+    });
+
+    it('matches *.sock pattern without ai-ide-pty- prefix', async () => {
+      const socketsDir = getSocketDir();
+      await writeFile(join(socketsDir, 'some-shell.sock'), '');
+      await writeFile(join(socketsDir, 'not-a-socket.txt'), '');
+
+      const manager = new PtyDaemonManager();
+      const orphans = await manager.findOrphanedSockets([]);
+      expect(orphans).toHaveLength(1);
+      expect(orphans[0]).toContain('some-shell.sock');
+    });
+
     it('returns empty array when no orphans', async () => {
       const manager = new PtyDaemonManager();
       const orphans = await manager.findOrphanedSockets(['shell-1', 'shell-2']);
-      // Filter out any real orphans from previous test runs
-      const testOrphans = orphans.filter((p) => p.includes('test-orphan'));
-      expect(testOrphans).toEqual([]);
+      expect(orphans).toEqual([]);
     });
 
     it('finds orphaned socket files', async () => {
@@ -272,14 +318,10 @@ describe('PtyDaemonManager', () => {
       // Create orphan socket file
       await writeFile(orphanSocketPath, '');
 
-      try {
-        const manager = new PtyDaemonManager();
-        const orphans = await manager.findOrphanedSockets(['valid-shell-id']);
+      const manager = new PtyDaemonManager();
+      const orphans = await manager.findOrphanedSockets(['valid-shell-id']);
 
-        expect(orphans).toContain(orphanSocketPath);
-      } finally {
-        await unlink(orphanSocketPath);
-      }
+      expect(orphans).toContain(orphanSocketPath);
     });
 
     it('excludes valid shell sockets', async () => {
@@ -289,14 +331,10 @@ describe('PtyDaemonManager', () => {
       // Create socket file for valid shell
       await writeFile(validSocketPath, '');
 
-      try {
-        const manager = new PtyDaemonManager();
-        const orphans = await manager.findOrphanedSockets([validShellId]);
+      const manager = new PtyDaemonManager();
+      const orphans = await manager.findOrphanedSockets([validShellId]);
 
-        expect(orphans).not.toContain(validSocketPath);
-      } finally {
-        await unlink(validSocketPath);
-      }
+      expect(orphans).not.toContain(validSocketPath);
     });
   });
 
@@ -309,11 +347,15 @@ describe('PtyDaemonManager', () => {
       await writeFile(orphanSocketPath, '');
 
       const manager = new PtyDaemonManager();
-      await manager.cleanupOrphanedSockets(['valid-shell']);
 
-      // Verify orphan was removed
-      const orphans = await manager.findOrphanedSockets(['valid-shell']);
-      expect(orphans).not.toContain(orphanSocketPath);
+      const orphansBefore = await manager.findOrphanedSockets([]);
+      expect(orphansBefore).toContain(orphanSocketPath);
+
+      await manager.cleanupOrphanedSockets([]);
+
+      // Verify our orphan was removed
+      const orphansAfter = await manager.findOrphanedSockets([]);
+      expect(orphansAfter).not.toContain(orphanSocketPath);
     });
   });
 

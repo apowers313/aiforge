@@ -121,6 +121,10 @@ describe('PTY Daemon Reconnection', () => {
       // Socket should still exist (daemon is still running)
       await expect(access(socketPath)).resolves.not.toThrow();
 
+      // Brief delay to allow daemon to fully process the disconnection
+      // Using 200ms for stability when running with full test suite
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
       // Reconnect via attach
       const client2 = await manager.attach(shellId, tmpdir());
 
@@ -181,6 +185,11 @@ describe('PTY Daemon Reconnection', () => {
       manager.disconnectAll();
       expect(manager.count()).toBe(0);
 
+      // Brief delay to allow daemon to fully process the disconnection
+      // Without this, the next attach() can race with the socket cleanup
+      // Using 200ms instead of 100ms for stability when running with full test suite
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
       // Reconnect to both
       await manager.attach(shellId1, tmpdir());
       await manager.attach(shellId2, tmpdir());
@@ -220,11 +229,112 @@ describe('PTY Daemon Reconnection', () => {
       // Socket should exist
       await expect(access(socketPath)).resolves.not.toThrow();
 
-      // Clean up orphans
-      await manager.cleanupOrphanedSockets([]);
+      // Clean up ONLY our specific orphan to avoid interfering with other tests
+      // We verify the orphan is found first, then manually delete it
+      const orphans = await manager.findOrphanedSockets([]);
+      expect(orphans).toContain(socketPath);
+
+      await unlink(socketPath);
 
       // Socket should be gone
       await expect(access(socketPath)).rejects.toThrow();
+    }, TEST_TIMEOUT);
+  });
+
+  describe('broken pipe survival', () => {
+    /**
+     * Regression test for shell restarts caused by broken stdout/stderr pipes.
+     *
+     * Root cause: The daemon is spawned with stdio: ['ignore', 'pipe', 'pipe'].
+     * When the server process exits (tsx watch restart, SIGTERM, etc.), the
+     * read-ends of the stdout/stderr pipes close. The daemon's next console.log
+     * (e.g., logging "Client disconnected") writes to the broken pipe, causing
+     * an EPIPE error on process.stdout. Without an error handler, this becomes
+     * an uncaughtException that triggers daemon shutdown -- killing the user's
+     * shell session.
+     *
+     * Fix: process.stdout.on('error', ...) and process.stderr.on('error', ...)
+     * in the daemon to silently ignore EPIPE errors.
+     */
+    it('daemon survives when stdout/stderr pipes break (server exit simulation)', async () => {
+      const shellId = generateShellId();
+      const socketPath = getSocketPath(shellId);
+      const { spawn: cpSpawn } = await import('node:child_process');
+      const { join, dirname } = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+
+      const thisFile = fileURLToPath(import.meta.url);
+      const projectRoot = join(dirname(thisFile), '..', '..', '..');
+
+      // Spawn daemon directly (bypassing PtyDaemonManager) so we control the pipes
+      const tsxPath = join(projectRoot, 'node_modules', '.bin', 'tsx');
+      const daemonScript = join(
+        projectRoot,
+        'src',
+        'server',
+        'services',
+        'pty',
+        'daemon',
+        'pty-daemon.ts',
+      );
+
+      const config = JSON.stringify({
+        shellId,
+        cwd: tmpdir(),
+        shell: '/bin/bash',
+        cols: 80,
+        rows: 24,
+        scrollbackDir: join(tmpdir(), 'scrollback-test'),
+      });
+
+      const child = cpSpawn(tsxPath, [daemonScript, config], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: process.env,
+      });
+      child.unref();
+
+      // Wait for "PTY daemon ready:" on stdout
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Daemon startup timeout')), 10000);
+        let output = '';
+        child.stdout!.on('data', (data: Buffer) => {
+          output += data.toString();
+          if (output.includes('PTY daemon ready:')) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+        child.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
+
+      // Destroy the stdout/stderr pipes -- this simulates what happens when
+      // the server process exits and the OS closes the pipe file descriptors
+      child.stdout!.destroy();
+      child.stderr!.destroy();
+
+      // Wait for the broken pipe to propagate and the daemon to attempt logging
+      // (the daemon logs "Client disconnected" which would trigger the EPIPE)
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // The daemon should still be alive -- verify by connecting to its socket
+      await expect(access(socketPath)).resolves.not.toThrow();
+
+      const client = await manager.attach(shellId, tmpdir());
+      expect(client.isConnected).toBe(true);
+
+      // Verify the daemon is functional by sending a command and reading output
+      const receivedData: string[] = [];
+      client.onData((data) => {
+        receivedData.push(data);
+      });
+      client.write('echo "SURVIVED_BROKEN_PIPE"\n');
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      expect(receivedData.join('')).toContain('SURVIVED_BROKEN_PIPE');
     }, TEST_TIMEOUT);
   });
 

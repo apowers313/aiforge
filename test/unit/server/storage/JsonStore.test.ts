@@ -71,8 +71,8 @@ describe('JsonStore', () => {
 
     const data = await store.read();
     expect(data.items).toHaveLength(2);
-    expect(data.items[0].id).toBe('first');
-    expect(data.items[1].id).toBe('second');
+    expect(data.items[0]?.id).toBe('first');
+    expect(data.items[1]?.id).toBe('second');
   });
 
   it('creates parent directories if they do not exist', async () => {

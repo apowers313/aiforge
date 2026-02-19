@@ -94,6 +94,7 @@ function createTestShell(id: string, overrides: Partial<Shell> = {}): Shell {
     socketPath: null,
     lastActivityAt: null,
     done: false,
+    worktreePath: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,

@@ -38,11 +38,11 @@ export type ClientMessage =
   | { type: 'kill'; signal?: string };          // Terminate PTY
 
 /**
- * Get the socket path for a shell
+ * Re-export getSocketPath from the central paths module.
+ * This preserves the import path for all existing consumers
+ * (PtyDaemonClient, PtyDaemonManager, pty-daemon, index).
  */
-export function getSocketPath(shellId: string): string {
-  return `/tmp/ai-ide-pty-${shellId}.sock`;
-}
+export { getSocketPath } from '../../../paths.js';
 
 /**
  * Encode a message for transmission (add newline delimiter)
