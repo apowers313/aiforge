@@ -221,10 +221,10 @@ describe('ProjectFilesTab', () => {
 
     await user.click(screen.getByText('test.ts'));
 
-    // The file should be highlighted (selected) in the file tree
+    // The file should be highlighted (selected) via data-selected attribute
     await waitFor(() => {
-      const fileItem = screen.getByTestId('file-item');
-      expect(fileItem).toHaveStyle({ backgroundColor: 'var(--mantine-color-dark-5)' });
+      const node = screen.getByText('test.ts').closest('[data-value]');
+      expect(node).toHaveAttribute('data-selected');
     });
   });
 
@@ -242,7 +242,7 @@ describe('ProjectFilesTab', () => {
     // Click the file - this should trigger openFilePreview in the store
     await user.click(screen.getByText('file1.ts'));
 
-    // Verify the file item exists (the actual preview is shown in center panel, not here)
-    expect(screen.getByTestId('file-item')).toBeInTheDocument();
+    // Verify the node with data-value exists (Mantine Tree uses data-value instead of data-testid)
+    expect(screen.getByText('file1.ts').closest('[data-value="src/file1.ts"]')).toBeInTheDocument();
   });
 });
